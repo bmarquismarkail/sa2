@@ -18,6 +18,9 @@ ifeq ($(CPU_ARCH),arm)
 else ifeq ($(CPU_ARCH),i386)
     THUMB_SUPPORT ?= 0
     MIDI_COMMENTS := "x86"
+else ifeq ($(CPU_ARCH),sh2)
+    THUMB_SUPPORT ?= 0
+    MIDI_COMMENTS := "sh2"
 else
     $(error unknown arch: $(CPU_ARCH))
 endif

@@ -369,7 +369,7 @@ endif
 #### MAIN TARGETS ####
 
 # these commands will run regardless of deps being completed
-.PHONY: clean tools tidy clean-tools $(TOOLDIRS) libagbsyscall ps2 sa1
+.PHONY: clean tools tidy clean-tools $(TOOLDIRS) libagbsyscall ps2 sa1 saturn
 
 # Ensure required directories exist
 $(shell mkdir -p $(C_BUILDDIR) $(ASM_BUILDDIR) $(DATA_ASM_BUILDDIR) $(SOUND_ASM_BUILDDIR) $(SONG_BUILDDIR) $(MID_BUILDDIR))
@@ -467,6 +467,8 @@ sdl: ; @$(MAKE) PLATFORM=sdl
 sdl_psp: ; @$(MAKE) PLATFORM=sdl_psp
 
 ps2: ; @$(MAKE) PLATFORM=ps2
+
+saturn: ; @$(MAKE) -f Makefile.saturn
 
 tas_sdl: ; @$(MAKE) sdl TAS_TESTING=1
 

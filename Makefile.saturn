@@ -1,0 +1,329 @@
+include config.mk
+
+MAKEFLAGS += --no-print-directory
+.SECONDARY:
+
+ROOT_DIR := "$(shell dirname "$(realpath $(firstword $(MAKEFILE_LIST)))")"
+BUILD_NAME := sa2
+PLATFORM := saturn
+CPU_ARCH := sh2
+MIDI_COMMENTS := "arm"
+
+JOENGINE_ROOT ?= /home/brandon/src/repos/joengine
+JOENGINE_COMPILER := $(JOENGINE_ROOT)/Compiler
+JOENGINE_SRC := $(JOENGINE_ROOT)/jo_engine
+JOENGINE_SGL := $(JOENGINE_COMPILER)/COMMON/SGL_302j
+JOENGINE_SGL_INC := $(JOENGINE_SGL)/INC
+JOENGINE_SGL_LIB := $(JOENGINE_SGL)/LIB_ELF
+
+CC := $(JOENGINE_COMPILER)/LINUX/bin/sh-none-elf-gcc-8.2.0
+CXX := $(CC)
+OBJCOPY := $(JOENGINE_COMPILER)/LINUX/bin/sh-none-elf-objcopy
+CPP := $(CC) -E
+
+GFX := tools/gbagfx/gbagfx
+ENT_POS := tools/entity_positions/entity_positions
+AIF := tools/aif2pcm/aif2pcm
+MID2AGB := tools/mid2agb/mid2agb
+SCANINC := tools/scaninc/scaninc
+PREPROC := tools/preproc/preproc
+
+OUT_DIR := build/saturn/$(BUILD_NAME)
+OBJ_DIR := $(OUT_DIR)/obj
+DISC_DIR := $(OUT_DIR)/disc
+
+TARGET := $(OUT_DIR)/$(BUILD_NAME).saturn.elf
+RAW := $(OUT_DIR)/$(BUILD_NAME).saturn.raw
+MAP := $(OUT_DIR)/$(BUILD_NAME).saturn.map
+ENTRY := $(DISC_DIR)/1ST_READ.BIN
+IPFILE := $(DISC_DIR)/IP.BIN
+LINKER_SCRIPT := $(JOENGINE_COMPILER)/COMMON/sgl.linker
+
+INCLUDE_DIRS := include
+INCLUDE_CPP_ARGS := $(INCLUDE_DIRS:%=-iquote %)
+INCLUDE_SCANINC_ARGS := $(INCLUDE_DIRS:%=-I %)
+
+CPPFLAGS := $(INCLUDE_CPP_ARGS) \
+	-D $(GAME_REGION) \
+	-I$(JOENGINE_SRC) \
+	-I$(JOENGINE_SGL_INC) \
+	-I$(JOENGINE_COMPILER)/WINDOWS/sh-elf/include \
+	-DPLATFORM_GBA=0 \
+	-DPLATFORM_SDL=0 \
+	-DPLATFORM_WIN32=0 \
+	-DPLATFORM_SATURN=1 \
+	-DCPU_ARCH_X86=0 \
+	-DCPU_ARCH_ARM=0 \
+	-DPORTABLE=1 \
+	-DNON_MATCHING=1 \
+	-DENABLE_DECOMP_CREDITS=1 \
+	-DDEBUG=0 \
+	-DHEADLESS=0 \
+	-DJO_FRAMERATE=1 \
+	-DJO_MAX_SPRITE=255 \
+	-DJO_MAX_SPRITE_ANIM=16 \
+	-DJO_GLOBAL_MEMORY_SIZE_FOR_MALLOC=393216 \
+	-DJO_MAX_FILE_IN_IMAGE_PACK=32 \
+	-DJO_MAP_MAX_LAYER=8 \
+	-DJO_MAX_FS_BACKGROUND_JOBS=1 \
+	-DJO_NTSC_VERSION \
+	-DJO_COMPILE_USING_SGL \
+	-DJO_COMPILE_WITH_PRINTF_SUPPORT \
+	-DJO_COMPILE_WITH_3D_SUPPORT
+
+CC1FLAGS := -W -Wall -Wshadow -Wbad-function-cast -Winline -Wcomment \
+	-Wsign-compare -Wextra -Wno-strict-aliasing -Wno-unused-value \
+	-fno-common -ffast-math --param max-inline-insns-single=50 \
+	-fms-extensions -std=gnu99 -fmerge-all-constants -fno-ident \
+	-fno-unwind-tables -fno-asynchronous-unwind-tables \
+	-fomit-frame-pointer -fstrength-reduce -frerun-loop-opt \
+	-O2 -nodefaultlibs -nostdlib -fno-builtin -m2 -x c -S
+
+CXXFLAGS := $(CC1FLAGS) -x c++ -fno-rtti -fno-exceptions -fno-threadsafe-statics -std=gnu++11
+ASFLAGS := -m2 -c
+
+LDFLAGS := -m2 \
+	-L$(JOENGINE_SGL_LIB) \
+	-Xlinker -T$(LINKER_SCRIPT) \
+	-Xlinker -Map -Xlinker $(MAP) \
+	-Xlinker -e -Xlinker ___Start \
+	-nostartfiles
+
+SYSOBJS := $(JOENGINE_SGL_LIB)/SGLAREA.O
+LIBS := $(JOENGINE_SGL_LIB)/SEGA_SYS.A \
+	$(JOENGINE_SGL_LIB)/LIBCD.A \
+	$(JOENGINE_SGL_LIB)/LIBSGL.A \
+	$(JOENGINE_SGL_LIB)/LIBCPK.A \
+	$(JOENGINE_SGL_LIB)/LIBSND.A \
+	-L$(JOENGINE_COMPILER)/LINUX/lib/gcc/sh-none-elf/8.2.0 \
+	-lgcc
+
+LIBAGB_SYSCALLS := IntrWait \
+	RegisterRamReset \
+	Sqrt \
+	MusicPlayerOpen \
+	SoundBiasReset \
+	SoundDriverVSyncOn \
+	Mod \
+	VBlankIntrWait \
+	MusicPlayerStart \
+	SoundDriverVSyncOff \
+	HuffUnComp \
+	SoftResetExram \
+	MusicPlayerFadeOut \
+	LZ77UnCompWram \
+	SoundDriverMain \
+	SoundBiasChange \
+	LZ77UnCompVram \
+	ArcTan2 \
+	MusicPlayerStop \
+	DivArm \
+	ModArm \
+	SoundDriverVSync \
+	SoundDriverInit \
+	BgAffineSet \
+	Diff8bitUnFilterWram \
+	MultiBoot \
+	MidiKey2Freq \
+	Div \
+	Diff8bitUnFilterVram \
+	ArcTan \
+	ObjAffineSet \
+	SoftResetRom \
+	SoundDriverMode \
+	RLUnCompWram \
+	BitUnPack \
+	SoundChannelClear \
+	CpuFastSet \
+	CpuSet \
+	Diff16bitUnFilter \
+	SoundBiasSet \
+	MusicPlayerContinue \
+	SoftReset \
+	RLUnCompVram
+
+TOOLDIRS := $(filter-out tools/agbcc/ tools/BriBaSA_ex/, $(dir $(wildcard tools/*/Makefile)))
+
+OBJ_TILES_4BPP_SUBDIR := graphics/sa2/obj_tiles/4bpp
+TILESETS_SUBDIR := graphics/sa2/tilesets
+DATA_ASM_SUBDIR := data/sa2
+DATA_ASM_BUILDDIR := $(OBJ_DIR)/$(DATA_ASM_SUBDIR)
+SONG_SUBDIR := sound/sa2/songs
+SONG_BUILDDIR := $(OBJ_DIR)/$(SONG_SUBDIR)
+MID_SUBDIR := sound/sa2/songs/midi
+MID_BUILDDIR := $(OBJ_DIR)/$(MID_SUBDIR)
+
+LOCAL_C_SRCS := $(shell find src -name "*.c" -not -path "*/platform/win32/*" -not -path "*/platform/pret_sdl/*" -not -path "*/platform/ps2/*")
+LOCAL_CXX_SRCS := $(shell find src -name "*.cc")
+JOENGINE_C_SRCS := $(JOENGINE_SRC)/font.c \
+	$(JOENGINE_SRC)/input.c \
+	$(JOENGINE_SRC)/physics.c \
+	$(JOENGINE_SRC)/core.c \
+	$(JOENGINE_SRC)/math.c \
+	$(JOENGINE_SRC)/malloc.c \
+	$(JOENGINE_SRC)/tools.c \
+	$(JOENGINE_SRC)/palette.c \
+	$(JOENGINE_SRC)/sprites.c \
+	$(JOENGINE_SRC)/map.c \
+	$(JOENGINE_SRC)/list.c \
+	$(JOENGINE_SRC)/sprite_animator.c \
+	$(JOENGINE_SRC)/image.c \
+	$(JOENGINE_SRC)/vdp2.c \
+	$(JOENGINE_SRC)/time.c \
+	$(JOENGINE_SRC)/vdp1_command_pipeline.c \
+	$(JOENGINE_SRC)/vdp2_malloc.c \
+	$(JOENGINE_SRC)/3d.c
+DATA_ASM_SRCS := $(wildcard $(DATA_ASM_SUBDIR)/*.s)
+SONG_SRCS := $(wildcard $(SONG_SUBDIR)/*.s)
+MID_SRCS := $(wildcard $(MID_SUBDIR)/*.mid)
+
+LOCAL_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(LOCAL_C_SRCS))
+LOCAL_CXX_OBJS := $(patsubst %.cc,$(OBJ_DIR)/%.o,$(LOCAL_CXX_SRCS))
+JOENGINE_OBJS := $(patsubst $(JOENGINE_ROOT)/%.c,$(OBJ_DIR)/joengine/%.o,$(JOENGINE_C_SRCS))
+LIBAGB_OBJS := $(foreach syscall,$(LIBAGB_SYSCALLS),$(OBJ_DIR)/libagbsyscall/$(syscall).o)
+DATA_ASM_OBJS := $(patsubst $(DATA_ASM_SUBDIR)/%.s,$(DATA_ASM_BUILDDIR)/%.o,$(DATA_ASM_SRCS))
+SONG_OBJS := $(patsubst $(SONG_SUBDIR)/%.s,$(SONG_BUILDDIR)/%.o,$(SONG_SRCS))
+MID_OBJS := $(patsubst $(MID_SUBDIR)/%.mid,$(MID_BUILDDIR)/%.o,$(MID_SRCS))
+OBJS := $(LOCAL_OBJS) $(LOCAL_CXX_OBJS) $(JOENGINE_OBJS) $(LIBAGB_OBJS) $(DATA_ASM_OBJS) $(SONG_OBJS) $(MID_OBJS)
+C_DEPS := $(patsubst %.c,$(OBJ_DIR)/%.d,$(LOCAL_C_SRCS))
+CXX_DEPS := $(patsubst %.cc,$(OBJ_DIR)/%.d,$(LOCAL_CXX_SRCS))
+JOENGINE_DEPS := $(patsubst $(JOENGINE_ROOT)/%.c,$(OBJ_DIR)/joengine/%.d,$(JOENGINE_C_SRCS))
+DATA_ASM_DEPS := $(patsubst $(DATA_ASM_SUBDIR)/%.s,$(DATA_ASM_BUILDDIR)/%.d,$(DATA_ASM_SRCS))
+SONG_DEPS := $(patsubst $(SONG_SUBDIR)/%.s,$(SONG_BUILDDIR)/%.d,$(SONG_SRCS))
+
+.PHONY: all clean tools $(TOOLDIRS)
+
+all: tools $(ENTRY)
+
+include songs.mk
+include graphics.mk
+
+ifneq ($(NODEP),1)
+-include $(C_DEPS)
+-include $(CXX_DEPS)
+-include $(JOENGINE_DEPS)
+-include $(DATA_ASM_DEPS)
+-include $(SONG_DEPS)
+endif
+
+%.s: ;
+%.png: ;
+%.pal: ;
+
+%.1bpp: %.png ; $(GFX) $< $@
+%.4bpp: %.png ; $(GFX) $< $@
+%.8bpp: %.png ; $(GFX) $< $@
+%.gbapal: %.pal ; $(GFX) $< $@
+%.gbapal: %.png ; $(GFX) $< $@
+
+%interactables.bin: %interactables.csv
+	$(ENT_POS) $< $@ -entities INTERACTABLES -header "./include/constants/interactables.h"
+
+%itemboxes.bin: %itemboxes.csv
+	$(ENT_POS) $< $@ -entities ITEMS -header "./include/constants/items.h"
+
+%enemies.bin: %enemies.csv
+	$(ENT_POS) $< $@ -entities ENEMIES -header "./include/constants/enemies.h"
+
+%rings.bin: %rings.csv
+	$(ENT_POS) $< $@ -entities RINGS
+
+%.gba.lz: %.gba
+	$(GFX) $< $@
+
+%.bin.lz: %.bin
+	$(GFX) $< $@
+
+%.lz: %
+	$(GFX) $< $@
+
+%.rl: %
+	$(GFX) $< $@
+
+%.bin: %.aif
+	$(AIF) $< $@
+
+$(TARGET): $(OBJS)
+	@mkdir -p $(OUT_DIR)
+	$(CC) $(LDFLAGS) $(SYSOBJS) $(OBJS) $(LIBS) -o $@
+
+$(RAW): $(TARGET)
+	$(OBJCOPY) -O binary $< $@
+
+$(ENTRY): $(RAW)
+	@mkdir -p $(DISC_DIR)
+	cp $(JOENGINE_COMPILER)/COMMON/IP.BIN $(IPFILE)
+	cp $(RAW) $(ENTRY)
+
+tools:
+	@$(MAKE) -f Makefile tools NODEP=1
+
+$(OBJ_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CPP) $(CPPFLAGS) $< -o $(OBJ_DIR)/$*.i
+	$(PREPROC) $(OBJ_DIR)/$*.i $(PLATFORM) "" | $(CC) $(CC1FLAGS) -o $(OBJ_DIR)/$*.s -
+	$(CC) $(ASFLAGS) $(OBJ_DIR)/$*.s -o $@
+
+$(OBJ_DIR)/%.d: %.c
+	@mkdir -p $(dir $@)
+	$(SCANINC) -M $@ $(INCLUDE_SCANINC_ARGS) $<
+
+$(OBJ_DIR)/%.o: %.cc
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -o $(OBJ_DIR)/$*.s $<
+	$(CC) $(ASFLAGS) $(OBJ_DIR)/$*.s -o $@
+
+$(OBJ_DIR)/%.d: %.cc
+	@mkdir -p $(dir $@)
+	$(SCANINC) -M $@ $(INCLUDE_SCANINC_ARGS) $<
+
+$(OBJ_DIR)/joengine/%.o: $(JOENGINE_ROOT)/%.c
+	@mkdir -p $(dir $@)
+	$(CPP) $(CPPFLAGS) $< -o $(OBJ_DIR)/joengine/$*.i
+	$(PREPROC) $(OBJ_DIR)/joengine/$*.i $(PLATFORM) "" | $(CC) $(CC1FLAGS) -o $(OBJ_DIR)/joengine/$*.s -
+	$(CC) $(ASFLAGS) $(OBJ_DIR)/joengine/$*.s -o $@
+
+$(OBJ_DIR)/joengine/%.d: $(JOENGINE_ROOT)/%.c
+	@mkdir -p $(dir $@)
+	$(SCANINC) -M $@ $(INCLUDE_SCANINC_ARGS) $<
+
+$(OBJ_DIR)/libagbsyscall/%.o: libagbsyscall/libagbsyscall.c
+	@mkdir -p $(dir $@)
+	$(CPP) $(CPPFLAGS) -D L_$(*F)=1 $< -o $(OBJ_DIR)/libagbsyscall/$*.i
+	$(PREPROC) $(OBJ_DIR)/libagbsyscall/$*.i $(PLATFORM) "" | $(CC) $(CC1FLAGS) -o $(OBJ_DIR)/libagbsyscall/$*.s -
+	$(CC) $(ASFLAGS) $(OBJ_DIR)/libagbsyscall/$*.s -o $@
+
+$(DATA_ASM_BUILDDIR)/%.o: $(DATA_ASM_SUBDIR)/%.s
+	@mkdir -p $(dir $@)
+	$(PREPROC) $< $(PLATFORM) "" | $(CPP) $(CPPFLAGS) - | $(CC) -m2 -x assembler-with-cpp -c -o $@ -
+
+$(DATA_ASM_BUILDDIR)/%.d: $(DATA_ASM_SUBDIR)/%.s
+	@mkdir -p $(dir $@)
+	$(SCANINC) -M $@ $(INCLUDE_SCANINC_ARGS) $<
+
+$(SONG_BUILDDIR)/%.o: $(SONG_SUBDIR)/%.s
+	@mkdir -p $(dir $@)
+	$(PREPROC) $< $(PLATFORM) "" | $(CPP) $(CPPFLAGS) - | $(CC) -m2 -x assembler-with-cpp -c -o $@ -
+
+$(SONG_BUILDDIR)/%.d: $(SONG_SUBDIR)/%.s
+	@mkdir -p $(dir $@)
+	$(SCANINC) -M $@ $(INCLUDE_SCANINC_ARGS) $<
+
+$(MID_BUILDDIR)/%.o: $(MID_SUBDIR)/%.s
+	@mkdir -p $(dir $@)
+	$(PREPROC) $< $(PLATFORM) "" | $(CPP) $(CPPFLAGS) - | $(CC) -m2 -x assembler-with-cpp -c -o $@ -
+
+chao_garden/mb_chao_garden.gba:
+	@printf "1" > $@
+
+multi_boot/subgame_bootstrap/subgame_bootstrap.gba:
+	@printf "1" > $@
+
+multi_boot/programs/subgame_loader/subgame_loader.bin:
+	@printf "1" > $@
+
+multi_boot/collect_rings/mb_signed_collect_rings.gba:
+	@printf "1" > $@
+
+clean:
+	rm -rf build/saturn
