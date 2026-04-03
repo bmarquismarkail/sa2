@@ -9,7 +9,11 @@ PLATFORM := saturn
 CPU_ARCH := sh2
 MIDI_COMMENTS := "arm"
 
+# Override JOENGINE_ROOT=/path/to/joengine if your local Jo Engine checkout lives elsewhere.
 JOENGINE_ROOT ?= /home/brandon/src/repos/joengine
+ifeq ($(wildcard $(JOENGINE_ROOT)),)
+$(error JOENGINE_ROOT directory '$(JOENGINE_ROOT)' was not found. Set JOENGINE_ROOT=/path/to/joengine when invoking make or export JOENGINE_ROOT in your environment)
+endif
 JOENGINE_COMPILER := $(JOENGINE_ROOT)/Compiler
 JOENGINE_SRC := $(JOENGINE_ROOT)/jo_engine
 JOENGINE_SGL := $(JOENGINE_COMPILER)/COMMON/SGL_302j
@@ -21,12 +25,12 @@ CXX := $(CC)
 OBJCOPY := $(JOENGINE_COMPILER)/LINUX/bin/sh-none-elf-objcopy
 CPP := $(CC) -E
 
-GFX := tools/gbagfx/gbagfx
-ENT_POS := tools/entity_positions/entity_positions
-AIF := tools/aif2pcm/aif2pcm
-MID2AGB := tools/mid2agb/mid2agb
-SCANINC := tools/scaninc/scaninc
-PREPROC := tools/preproc/preproc
+GFX := tools/gbagfx/gbagfx$(EXE)
+ENT_POS := tools/entity_positions/entity_positions$(EXE)
+AIF := tools/aif2pcm/aif2pcm$(EXE)
+MID2AGB := tools/mid2agb/mid2agb$(EXE)
+SCANINC := tools/scaninc/scaninc$(EXE)
+PREPROC := tools/preproc/preproc$(EXE)
 
 OUT_DIR := build/saturn/$(BUILD_NAME)
 OBJ_DIR := $(OUT_DIR)/obj
@@ -325,5 +329,9 @@ multi_boot/programs/subgame_loader/subgame_loader.bin:
 multi_boot/collect_rings/mb_signed_collect_rings.gba:
 	@printf "1" > $@
 
-clean:
+clean: tidy
 	rm -rf build/saturn
+
+tidy:
+	$(RM) $(MID_SUBDIR)/*.s
+	find . \( -iwholename './data/*/maps/*/*/entities/*.bin' -o -iname '*.1bpp' -o -iname '*.4bpp' -o -iname '*.8bpp' -o -iname '*.gbapal' -o -iname '*.lz' -o -iname '*.rl' -o -iname '*.latfont' -o -iname '*.hwjpnfont' -o -iname '*.fwjpnfont' \) -exec $(RM) {} +

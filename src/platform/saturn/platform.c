@@ -7,6 +7,7 @@
 #include "platform/shared/video/gpsp_renderer.h"
 #include "platform/saturn/platform.h"
 
+// Clear project-level helper macros before including jo/jo.h to avoid name collisions with the Jo Engine headers.
 #undef TRUE
 #undef FALSE
 #undef MIN
@@ -75,32 +76,42 @@ void PlatformSaturn_PrepareRuntime(void)
 
 u16 PlatformSaturn_GetKeyInput(void) { return ReadSaturnKeys(); }
 
+static inline void HandleVBlankIntrs(void)
+{
+    REG_VCOUNT = DISPLAY_HEIGHT + 1;
+    REG_DISPSTAT |= INTR_FLAG_VBLANK;
+    RunDMAs(DMA_VBLANK);
+    if ((REG_DISPSTAT & DISPSTAT_VBLANK_INTR) && gIntrTable[INTR_INDEX_VBLANK]) {
+        gIntrTable[INTR_INDEX_VBLANK]();
+    }
+    REG_DISPSTAT &= ~INTR_FLAG_VBLANK;
+}
+
 void VBlankIntrWait(void)
 {
-#define HANDLE_VBLANK_INTRS()                                                                                                              \
-    ({                                                                                                                                     \
-        REG_VCOUNT = DISPLAY_HEIGHT + 1;                                                                                                   \
-        REG_DISPSTAT |= INTR_FLAG_VBLANK;                                                                                                  \
-        RunDMAs(DMA_VBLANK);                                                                                                               \
-        if (REG_DISPSTAT & DISPSTAT_VBLANK_INTR)                                                                                           \
-            gIntrTable[INTR_INDEX_VBLANK]();                                                                                               \
-        REG_DISPSTAT &= ~INTR_FLAG_VBLANK;                                                                                                 \
-    })
-
     REG_KEYINPUT = KEYS_MASK ^ PlatformSaturn_GetKeyInput();
     gpsp_draw_frame(sGameImage);
     PlatformSaturn_PresentFrame();
-    HANDLE_VBLANK_INTRS();
-
-#undef HANDLE_VBLANK_INTRS
+    HandleVBlankIntrs();
 }
 
-void DoSoftReset(void) { }
+void DoSoftReset(void)
+{
+    // TODO(saturn): Implement DoSoftReset by returning to the loader or invoking a Saturn reset/shutdown path.
+    // Safe fallback for now: intentionally no-op until a platform reset routine is available.
+}
 
-void Platform_StoreSaveFile(void) { }
+void Platform_StoreSaveFile(void)
+{
+    // TODO(saturn): Implement Platform_StoreSaveFile using a persistent Saturn save backend.
+    // When this is wired up, make sure write/open failures are surfaced and handled appropriately.
+}
 
 void Platform_QueueAudio(const s16 *data, u32 numBytes)
 {
     (void)data;
     (void)numBytes;
+
+    // TODO(saturn): Implement Platform_QueueAudio by forwarding PCM data to the Saturn audio API.
+    // Safe fallback for now: drop the mixed audio buffer until the Saturn audio backend is connected.
 }
