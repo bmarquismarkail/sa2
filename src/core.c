@@ -9,6 +9,10 @@
 #include "input_recorder.h"
 #include "lib/m4a/m4a.h"
 #include "lib/agb_flash/agb_flash.h"
+#if PLATFORM_SATURN
+#include "game/dummy_task.h"
+#include "platform/saturn/platform.h"
+#endif
 
 // TODO: Better name
 #define VBLANK_FUNC_ID_NONE 0xFF
@@ -285,6 +289,48 @@ void EngineInit(void)
 #endif
     }
 
+#if PLATFORM_SATURN
+    sLastCalledVblankFuncId = VBLANK_FUNC_ID_NONE;
+    gBackgroundsCopyQueueCursor = 0;
+    gBackgroundsCopyQueueIndex = 0;
+    gBgSpritesCount = 0;
+    gVramGraphicsCopyCursor = 0;
+    gVramGraphicsCopyQueueIndex = 0;
+    gSpriteOffset.x = 0;
+    gSpriteOffset.y = 0;
+    gDispCnt = 0;
+    gOamFreeIndex = 0;
+    gOamFirstPausedIndex = 0;
+
+    DmaFill32(3, 0, &gBgOffsetsBuffer, sizeof(gBgOffsetsBuffer));
+    gBgOffsetsHBlankPrimary = gBgOffsetsBuffer[0];
+    gBgOffsetsHBlankSecondary = gBgOffsetsBuffer[1];
+    gHBlankCopyTarget = NULL;
+    gHBlankCopySize = 0;
+    gNumHBlankCallbacks = 0;
+    gNumHBlankIntrs = 0;
+    gNumVBlankCallbacks = 0;
+    gNumVBlankIntrs = 0;
+
+    m4aSoundInit();
+    m4aSoundMode(DEFAULT_SOUND_MODE);
+    gExecSoundMain = TRUE;
+
+    TasksInit();
+#ifndef COLLECT_RINGS_ROM
+    EwramInitHeap();
+#endif
+
+    gVramHeapMaxTileSlots = VRAM_TILE_SEGMENTS * VRAM_TILE_SLOTS_PER_SEGMENT;
+    gVramHeapStartAddr = OBJ_VRAM1 - (VRAM_HEAP_TILE_COUNT * TILE_SIZE_4BPP);
+    VramResetHeapState();
+
+    gFlags |= FLAGS_NO_FLASH_MEMORY;
+    gMultiSioStatusFlags = 0;
+    gMultiSioEnabled = FALSE;
+    return;
+#endif
+
 #if COLLECT_RINGS_ROM
     DmaCopy16(3, (void *)OBJ_VRAM0, (void *)(EWRAM_START + 0x3b000), 0x5000);
 #else
@@ -468,6 +514,7 @@ void EngineInit(void)
     DmaWait(3);
 #endif
 
+
     m4aSoundInit();
     m4aSoundMode(DEFAULT_SOUND_MODE);
 
@@ -477,6 +524,7 @@ void EngineInit(void)
 #ifndef COLLECT_RINGS_ROM
     EwramInitHeap();
 #endif
+
 
     // VRAM_TILE_SEGMENTS / 256 max useable segments
     gVramHeapMaxTileSlots = VRAM_TILE_SEGMENTS * VRAM_TILE_SLOTS_PER_SEGMENT;
@@ -494,6 +542,7 @@ void EngineInit(void)
         SetFlashTimerIntr(1, &gIntrTable[5]);
     }
 #endif
+
 
     // Setup interrupt vector
 #if PLATFORM_GBA
@@ -531,7 +580,9 @@ void EngineInit(void)
     gMultiSioStatusFlags = 0;
     gMultiSioEnabled = FALSE;
 
+
     MultiSioInit(0);
+
 
 #if (ENGINE == ENGINE_3)
     gUnknown_0300620C = 0;
@@ -545,6 +596,40 @@ END_NONMATCH
 
 void EngineMainLoop(void)
 {
+#if PLATFORM_SATURN && SATURN_STAGE2_ONLY
+    {
+        u32 saturnShellFrames = 0;
+
+        for (;;) {
+            const u16 directKeys = PlatformSaturn_GetKeyInput();
+            ++saturnShellFrames;
+
+            if ((directKeys & (L_BUTTON | R_BUTTON | START_BUTTON)) == (L_BUTTON | R_BUTTON | START_BUTTON)) {
+                PlatformSaturn_SetBootStage("Saturn title: EXIT");
+                VBlankIntrWait();
+                return;
+            }
+
+            if (directKeys & START_BUTTON) {
+                PlatformSaturn_SetBootStage("Saturn title: START selected");
+            } else if (directKeys & A_BUTTON) {
+                PlatformSaturn_SetBootStage("Saturn title: A placeholder");
+            } else if (directKeys & B_BUTTON) {
+                PlatformSaturn_SetBootStage("Saturn title: B placeholder");
+            } else if (directKeys & DPAD_UP) {
+                PlatformSaturn_SetBootStage("Saturn title: MENU UP");
+            } else if (directKeys & DPAD_DOWN) {
+                PlatformSaturn_SetBootStage("Saturn title: MENU DOWN");
+            } else if ((saturnShellFrames & 0x20) == 0) {
+                PlatformSaturn_SetBootStage("Saturn title: PRESS START");
+            } else {
+                PlatformSaturn_SetBootStage("Saturn title: SHELL OK");
+            }
+
+            VBlankIntrWait();
+        }
+    }
+#endif
 #if !PLATFORM_WIN32
     while (TRUE)
 #endif
@@ -560,7 +645,11 @@ void EngineMainLoop(void)
         }
 #endif
 
+#if PLATFORM_SATURN && SATURN_STAGE2_ONLY
+        {
+#else
         if (sLastCalledVblankFuncId == VBLANK_FUNC_ID_NONE) {
+#endif
             GetInput();
 
             if (gMultiSioEnabled) {
@@ -573,6 +662,11 @@ void EngineMainLoop(void)
 #endif
 
             TasksExec();
+#if PLATFORM_SATURN && SATURN_STAGE2_ONLY
+            if (gDummyTask == NULL) {
+                return;
+            }
+#endif
         }
 
         gFlagsPreVBlank = gFlags;
@@ -612,6 +706,7 @@ void EngineMainLoop(void)
         // Wait for vblank to finish
         while (REG_DISPSTAT & DISPSTAT_VBLANK)
             ;
+
     };
 }
 
@@ -974,6 +1069,9 @@ void GetInput(void)
     u8 *repeatKeyCounters = gRepeatedKeysTestCounter, *firstIntervals = gKeysFirstRepeatIntervals,
        *continuedHoldIntervals = gKeysContinuedRepeatIntervals;
 
+#if PLATFORM_SATURN
+    REG_KEYINPUT = KEYS_MASK ^ PlatformSaturn_GetKeyInput();
+#endif
     gInput = (~REG_KEYINPUT & KEYS_MASK);
 
     // My guess is that whilst the input recorder

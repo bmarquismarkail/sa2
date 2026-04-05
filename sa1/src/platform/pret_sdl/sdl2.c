@@ -48,7 +48,7 @@ extern uint8_t REG_BASE[IO_SIZE];
 extern uint16_t PLTT[PLTT_SIZE / sizeof(uint16_t)];
 extern uint8_t VRAM[VRAM_SIZE];
 extern uint8_t OAM[OAM_SIZE];
-extern uint8_t FLASH_BASE[FLASH_ROM_SIZE_1M * SECTORS_PER_BANK];
+extern uint8_t FLASH_BASE[FLASH_EMU_SIZE];
 ALIGNED(256) uint16_t gameImage[DISPLAY_WIDTH * DISPLAY_HEIGHT];
 #if ENABLE_VRAM_VIEW
 #define VRAM_VIEW_WIDTH  (32 * TILE_WIDTH)

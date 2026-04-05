@@ -4,11 +4,87 @@ MAKEFLAGS += --no-print-directory
 .SECONDARY:
 
 ROOT_DIR := "$(shell dirname "$(realpath $(firstword $(MAKEFILE_LIST)))")"
+SATURN_MINIMAL_BOOT ?= 0
+SATURN_PLATFORM_PROBE ?= 0
+SATURN_ENTRY_PROBE ?= 0
+SATURN_PLATFORM_INIT_PROBE ?= 0
+SATURN_PLATFORM_ONLY_PROBE ?= 0
+SATURN_PLATFORM_CALLBACK_PROBE ?= 0
+SATURN_PLATFORM_VBLANK_PROBE ?= 0
+SATURN_PLATFORM_SPRITE_PROBE ?= 0
+SATURN_PLATFORM_STATIC_SPRITE_PROBE ?= 0
+SATURN_PLATFORM_SKIP_INIT_PROBE ?= 0
+SATURN_PLATFORM_SKIP_PREPARE_PROBE ?= 0
+SATURN_PLATFORM_SLIM_PROBE ?= 0
+SATURN_PLATFORM_MEMORY_PROBE ?=
+SATURN_FULL_LINK_PROBE ?= 0
+SATURN_FULL_LINK_PROBE_EXCLUDE ?=
+SATURN_STAGE2_ONLY ?= 0
+SATURN_STAGE2_FILE ?= SA2STAGE.BIN
+SATURN_STAGE2_LOAD_ADDRESS ?= 0x00220000
+SATURN_STAGE2_PROFILE ?= engine-init
+SATURN_STAGE1_LOADER ?= 0
+SATURN_BOOTABLE_DEFAULT ?= 1
+SATURN_BOOT_RAW_MAX_BYTES ?= 983040
+
+ifeq ($(SATURN_BOOTABLE_DEFAULT),1)
+ifeq ($(filter 1,$(SATURN_MINIMAL_BOOT) $(SATURN_PLATFORM_PROBE) $(SATURN_ENTRY_PROBE) $(SATURN_PLATFORM_INIT_PROBE) $(SATURN_PLATFORM_ONLY_PROBE) $(SATURN_PLATFORM_CALLBACK_PROBE) $(SATURN_PLATFORM_VBLANK_PROBE) $(SATURN_PLATFORM_SPRITE_PROBE) $(SATURN_PLATFORM_STATIC_SPRITE_PROBE) $(SATURN_PLATFORM_SKIP_INIT_PROBE) $(SATURN_PLATFORM_SKIP_PREPARE_PROBE) $(SATURN_PLATFORM_SLIM_PROBE) $(SATURN_FULL_LINK_PROBE) $(SATURN_STAGE2_ONLY)),)
+ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),)
+# Default to a small bootable bring-up image on real Saturn hardware until staged CD loading exists.
+SATURN_FULL_LINK_PROBE := 1
+SATURN_FULL_LINK_PROBE_EXCLUDE := content-core
+endif
+endif
+endif
+
+ifeq ($(SATURN_FULL_LINK_PROBE),1)
+ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),content-core)
+SATURN_STAGE1_LOADER := 1
+endif
+endif
+ifneq ($(SATURN_PLATFORM_MEMORY_PROBE),)
+BUILD_NAME := sa2-platform-memory-$(SATURN_PLATFORM_MEMORY_PROBE)-probe
+else ifeq ($(SATURN_STAGE2_ONLY),1)
+BUILD_NAME := sa2-stage2
+else ifeq ($(SATURN_FULL_LINK_PROBE),1)
+ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),)
+BUILD_NAME := sa2-full-link-probe
+else
+BUILD_NAME := sa2-full-link-probe-minus-$(SATURN_FULL_LINK_PROBE_EXCLUDE)
+endif
+else ifeq ($(SATURN_PLATFORM_SLIM_PROBE),1)
+BUILD_NAME := sa2-platform-slim-probe
+else ifeq ($(SATURN_PLATFORM_SKIP_PREPARE_PROBE),1)
+BUILD_NAME := sa2-platform-skip-prepare-probe
+else ifeq ($(SATURN_PLATFORM_SKIP_INIT_PROBE),1)
+BUILD_NAME := sa2-platform-skip-init-probe
+else ifeq ($(SATURN_PLATFORM_STATIC_SPRITE_PROBE),1)
+BUILD_NAME := sa2-platform-static-sprite-probe
+else ifeq ($(SATURN_PLATFORM_SPRITE_PROBE),1)
+BUILD_NAME := sa2-platform-sprite-probe
+else ifeq ($(SATURN_PLATFORM_VBLANK_PROBE),1)
+BUILD_NAME := sa2-platform-vblank-probe
+else ifeq ($(SATURN_PLATFORM_CALLBACK_PROBE),1)
+BUILD_NAME := sa2-platform-callback-probe
+else ifeq ($(SATURN_PLATFORM_ONLY_PROBE),1)
+BUILD_NAME := sa2-platform-only-probe
+else ifeq ($(SATURN_PLATFORM_INIT_PROBE),1)
+BUILD_NAME := sa2-platform-init-probe
+else ifeq ($(SATURN_ENTRY_PROBE),1)
+BUILD_NAME := sa2-entry-probe
+else ifeq ($(SATURN_PLATFORM_PROBE),1)
+BUILD_NAME := sa2-platform-probe
+else ifeq ($(SATURN_MINIMAL_BOOT),1)
+BUILD_NAME := sa2-minimal
+else
 BUILD_NAME := sa2
+endif
 PLATFORM := saturn
 CPU_ARCH := sh2
 # Override JOENGINE_ROOT=/path/to/joengine if your local Jo Engine checkout lives elsewhere.
 JOENGINE_ROOT ?= /home/brandon/src/repos/joengine
+# Default to entering the game directly; set SATURN_BOOT_TRAP=1 when doing early boot diagnostics.
+SATURN_BOOT_TRAP ?= 0
 ifeq ($(wildcard $(JOENGINE_ROOT)),)
 $(error JOENGINE_ROOT directory '$(JOENGINE_ROOT)' was not found. Set JOENGINE_ROOT=/path/to/joengine when invoking make or export JOENGINE_ROOT in your environment)
 endif
@@ -45,7 +121,22 @@ IPFILE := $(DISC_DIR)/IP.BIN
 ABSFILE := $(CD_DIR)/ABS.TXT
 BIBFILE := $(CD_DIR)/BIB.TXT
 CPYFILE := $(CD_DIR)/CPY.TXT
+SATURN_STAGE2_NAME := sa2-stage2
+SATURN_STAGE2_RAW := build/saturn/$(SATURN_STAGE2_NAME)/$(SATURN_STAGE2_NAME).saturn.raw
+SATURN_STAGE2_CD_FILE := $(CD_DIR)/$(SATURN_STAGE2_FILE)
+EXTRA_CD_FILES :=
+ifeq ($(SATURN_STAGE2_ONLY),0)
+ifeq ($(SATURN_FULL_LINK_PROBE),1)
+ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),content-core)
+EXTRA_CD_FILES += $(SATURN_STAGE2_CD_FILE)
+endif
+endif
+endif
+ifeq ($(SATURN_STAGE2_ONLY),1)
+LINKER_SCRIPT := $(ROOT_DIR)/src/platform/saturn/stage2.linker
+else
 LINKER_SCRIPT := $(JOENGINE_COMPILER)/COMMON/sgl.linker
+endif
 CUE_MAKER := "$(JOENGINE_COMPILER)/LINUX/Other Utilities/CueMaker"
 MKISOFS := mkisofs
 SATURN_DISC_NAME := SA2
@@ -68,13 +159,13 @@ MKISOFS_FLAGS := -quiet \
 	-publisher "SEGA ENTERPRISES, LTD." \
 	-preparer "SEGA ENTERPRISES, LTD." \
 	-appid "$(SATURN_DISC_NAME)" \
-	-abstract "$(ABSFILE)" \
-	-copyright "$(CPYFILE)" \
-	-biblio "$(BIBFILE)" \
-	-generic-boot "$(IPFILE)" \
+	-abstract "disc/cd/ABS.TXT" \
+	-copyright "disc/cd/CPY.TXT" \
+	-biblio "disc/cd/BIB.TXT" \
+	-generic-boot "disc/IP.BIN" \
 	-full-iso9660-filenames \
-	-o "$(ISO)" \
-	"$(CD_DIR)"
+	-o "$(BUILD_NAME).iso" \
+	"disc/cd"
 
 INCLUDE_DIRS := include
 INCLUDE_CPP_ARGS := $(INCLUDE_DIRS:%=-iquote %)
@@ -107,7 +198,78 @@ CPPFLAGS := $(INCLUDE_CPP_ARGS) \
 	-DJO_NTSC_VERSION \
 	-DJO_COMPILE_USING_SGL \
 	-DJO_COMPILE_WITH_PRINTF_SUPPORT \
-	-DJO_COMPILE_WITH_3D_SUPPORT
+	-DJO_COMPILE_WITH_3D_SUPPORT \
+	-DJO_COMPILE_WITH_FS_SUPPORT \
+	-DSATURN_BOOT_TRAP=$(SATURN_BOOT_TRAP) \
+	-DSATURN_STAGE1_LOADER=$(SATURN_STAGE1_LOADER) \
+	-DSATURN_STAGE2_ONLY=$(SATURN_STAGE2_ONLY) \
+	-DSATURN_STAGE2_LOAD_ADDRESS=$(SATURN_STAGE2_LOAD_ADDRESS) \
+	-DSATURN_STAGE2_FILE='"$(SATURN_STAGE2_FILE)"'
+
+ifneq ($(filter 1,$(SATURN_PLATFORM_PROBE) $(SATURN_ENTRY_PROBE) $(SATURN_PLATFORM_INIT_PROBE) $(SATURN_PLATFORM_ONLY_PROBE) $(SATURN_PLATFORM_CALLBACK_PROBE) $(SATURN_PLATFORM_VBLANK_PROBE) $(SATURN_PLATFORM_SPRITE_PROBE) $(SATURN_PLATFORM_STATIC_SPRITE_PROBE) $(SATURN_FULL_LINK_PROBE) $(SATURN_STAGE2_ONLY)),)
+CPPFLAGS += -DSATURN_PROBE_VISUALS=1
+else
+CPPFLAGS += -DSATURN_PROBE_VISUALS=0
+endif
+
+ifneq ($(filter 1,$(SATURN_PLATFORM_SPRITE_PROBE)),)
+CPPFLAGS += -DSATURN_PROBE_SPRITE_PRESENT=1
+else
+CPPFLAGS += -DSATURN_PROBE_SPRITE_PRESENT=0
+endif
+
+ifneq ($(filter 1,$(SATURN_PLATFORM_SLIM_PROBE)),)
+CPPFLAGS += -DSATURN_PROBE_SLIM_PLATFORM=1
+else
+CPPFLAGS += -DSATURN_PROBE_SLIM_PLATFORM=0
+endif
+
+ifneq ($(SATURN_PLATFORM_MEMORY_PROBE),)
+CPPFLAGS += -DSATURN_PROBE_SLIM_PLATFORM=1
+endif
+
+ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),regs)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=1 -DSATURN_MEMORY_PROBE_IWRAM=0 -DSATURN_MEMORY_PROBE_EWRAM=0 -DSATURN_MEMORY_PROBE_VIDEO=0 -DSATURN_MEMORY_PROBE_FLASH=0
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),iwram)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=0 -DSATURN_MEMORY_PROBE_IWRAM=1 -DSATURN_MEMORY_PROBE_EWRAM=0 -DSATURN_MEMORY_PROBE_VIDEO=0 -DSATURN_MEMORY_PROBE_FLASH=0
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),ewram)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=0 -DSATURN_MEMORY_PROBE_IWRAM=0 -DSATURN_MEMORY_PROBE_EWRAM=1 -DSATURN_MEMORY_PROBE_VIDEO=0 -DSATURN_MEMORY_PROBE_FLASH=0
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),video)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=0 -DSATURN_MEMORY_PROBE_IWRAM=0 -DSATURN_MEMORY_PROBE_EWRAM=0 -DSATURN_MEMORY_PROBE_VIDEO=1 -DSATURN_MEMORY_PROBE_FLASH=0
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),flash)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=0 -DSATURN_MEMORY_PROBE_IWRAM=0 -DSATURN_MEMORY_PROBE_EWRAM=0 -DSATURN_MEMORY_PROBE_VIDEO=0 -DSATURN_MEMORY_PROBE_FLASH=1
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),common-core)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=1 -DSATURN_MEMORY_PROBE_IWRAM=1 -DSATURN_MEMORY_PROBE_EWRAM=1 -DSATURN_MEMORY_PROBE_VIDEO=0 -DSATURN_MEMORY_PROBE_FLASH=0
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),common-video)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=1 -DSATURN_MEMORY_PROBE_IWRAM=1 -DSATURN_MEMORY_PROBE_EWRAM=1 -DSATURN_MEMORY_PROBE_VIDEO=1 -DSATURN_MEMORY_PROBE_FLASH=0
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),common-flash)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=1 -DSATURN_MEMORY_PROBE_IWRAM=1 -DSATURN_MEMORY_PROBE_EWRAM=1 -DSATURN_MEMORY_PROBE_VIDEO=0 -DSATURN_MEMORY_PROBE_FLASH=1
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),common)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=1 -DSATURN_MEMORY_PROBE_IWRAM=1 -DSATURN_MEMORY_PROBE_EWRAM=1 -DSATURN_MEMORY_PROBE_VIDEO=1 -DSATURN_MEMORY_PROBE_FLASH=1
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),common-core-pad)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=1 -DSATURN_MEMORY_PROBE_IWRAM=1 -DSATURN_MEMORY_PROBE_EWRAM=1 -DSATURN_MEMORY_PROBE_VIDEO=0 -DSATURN_MEMORY_PROBE_FLASH=0 -DSATURN_MEMORY_PROBE_PAD_VIDEO_SHIFT=1
+else ifeq ($(SATURN_PLATFORM_MEMORY_PROBE),common-flash-pad)
+CPPFLAGS += -DSATURN_MEMORY_PROBE_REGS=1 -DSATURN_MEMORY_PROBE_IWRAM=1 -DSATURN_MEMORY_PROBE_EWRAM=1 -DSATURN_MEMORY_PROBE_VIDEO=0 -DSATURN_MEMORY_PROBE_FLASH=1 -DSATURN_MEMORY_PROBE_PAD_VIDEO_SHIFT=1
+else ifneq ($(SATURN_PLATFORM_MEMORY_PROBE),)
+$(error Unsupported SATURN_PLATFORM_MEMORY_PROBE='$(SATURN_PLATFORM_MEMORY_PROBE)'; expected regs, iwram, ewram, video, flash, common-core, common-video, common-flash, common, common-core-pad, or common-flash-pad)
+endif
+
+ifeq ($(findstring -DSATURN_MEMORY_PROBE_PAD_VIDEO_SHIFT=1,$(CPPFLAGS)),-DSATURN_MEMORY_PROBE_PAD_VIDEO_SHIFT=1)
+else
+CPPFLAGS += -DSATURN_MEMORY_PROBE_PAD_VIDEO_SHIFT=0
+endif
+
+ifneq ($(filter 1,$(SATURN_PLATFORM_SKIP_INIT_PROBE)),)
+CPPFLAGS += -DSATURN_PROBE_SKIP_INIT=1
+else
+CPPFLAGS += -DSATURN_PROBE_SKIP_INIT=0
+endif
+
+ifneq ($(filter 1,$(SATURN_PLATFORM_SKIP_PREPARE_PROBE)),)
+CPPFLAGS += -DSATURN_PROBE_SKIP_PREPARE=1
+else
+CPPFLAGS += -DSATURN_PROBE_SKIP_PREPARE=0
+endif
 
 CC1FLAGS := -W -Wall -Wshadow -Wbad-function-cast -Winline -Wcomment \
 	-Wsign-compare -Wextra -Wno-strict-aliasing -Wno-unused-value \
@@ -136,6 +298,11 @@ LIBS := $(JOENGINE_SGL_LIB)/SEGA_SYS.A \
 	-L$(JOENGINE_COMPILER)/LINUX/lib/gcc/sh-none-elf/8.2.0 \
 	-lgcc
 
+ifneq ($(SATURN_PLATFORM_MEMORY_PROBE),)
+LIBAGB_SYSCALLS :=
+else ifneq ($(filter 1,$(SATURN_MINIMAL_BOOT) $(SATURN_PLATFORM_PROBE) $(SATURN_ENTRY_PROBE) $(SATURN_PLATFORM_INIT_PROBE) $(SATURN_PLATFORM_ONLY_PROBE) $(SATURN_PLATFORM_CALLBACK_PROBE) $(SATURN_PLATFORM_VBLANK_PROBE) $(SATURN_PLATFORM_SPRITE_PROBE) $(SATURN_PLATFORM_STATIC_SPRITE_PROBE) $(SATURN_PLATFORM_SKIP_INIT_PROBE) $(SATURN_PLATFORM_SKIP_PREPARE_PROBE) $(SATURN_PLATFORM_SLIM_PROBE) $(SATURN_STAGE1_LOADER)),)
+LIBAGB_SYSCALLS :=
+else
 LIBAGB_SYSCALLS := IntrWait \
 	RegisterRamReset \
 	Mod \
@@ -153,6 +320,7 @@ LIBAGB_SYSCALLS := IntrWait \
 	CpuSet \
 	Diff16bitUnFilter \
 	SoftReset
+endif
 
 TOOLDIRS := $(filter-out tools/agbcc/ tools/BriBaSA_ex/, $(dir $(wildcard tools/*/Makefile)))
 
@@ -165,14 +333,255 @@ SONG_BUILDDIR := $(OBJ_DIR)/$(SONG_SUBDIR)
 MID_SUBDIR := sound/sa2/songs/midi
 MID_BUILDDIR := $(OBJ_DIR)/$(MID_SUBDIR)
 
+ifneq ($(SATURN_PLATFORM_MEMORY_PROBE),)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_memory_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_STAGE2_ONLY),1)
+ifeq ($(SATURN_STAGE2_PROFILE),probe)
+LOCAL_C_SRCS := src/platform/saturn/stage2_probe_main.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_STAGE2_PROFILE),engine-init)
+LOCAL_C_SRCS := $(shell find src -name "*.c" -not -path "*/platform/win32/*" -not -path "*/platform/pret_sdl/*" -not -path "*/platform/ps2/*")
+LOCAL_C_SRCS := $(filter-out 	src/main.c 	src/platform/saturn/bss_guard.c 	src/platform/saturn/entry_probe_runtime.c 	src/platform/saturn/full_link_probe.c 	src/platform/saturn/minimal_main.c 	src/platform/saturn/platform_callback_probe.c 	src/platform/saturn/platform_init_probe.c 	src/platform/saturn/platform_memory_probe.c 	src/platform/saturn/platform_only_probe.c 	src/platform/saturn/platform_probe.c 	src/platform/saturn/platform_slim_probe.c 	src/platform/saturn/platform_sprite_probe.c 	src/platform/saturn/platform_static_sprite_probe.c 	src/platform/saturn/platform_vblank_probe.c 	src/platform/saturn/stage2_probe_main.c 	src/platform/saturn/stage2_game_probe.c 	src/lib/m4a/m4a.c 	src/lib/m4a/m4a_tables.c 	src/platform/shared/audio/cgb_audio.c 	src/platform/shared/audio/m4a_sound_mixer.c, 	$(LOCAL_C_SRCS))
+LOCAL_C_SRCS += src/platform/saturn/bss_guard.c src/platform/saturn/stage2_game_probe.c
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/data/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/stage -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/multiplayer -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/collect_rings -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/menus -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out src/game/decomp_credits.c,$(LOCAL_C_SRCS))
+# Keep the staged Saturn title shell tiny; avoid pulling the full SA2 title asset graph here.
+LOCAL_CXX_SRCS := $(shell find src -name "*.cc")
+DATA_ASM_SRCS := $(filter-out $(wildcard $(DATA_ASM_SUBDIR)/*.s),$(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s)))
+else
+$(error Unsupported SATURN_STAGE2_PROFILE='$(SATURN_STAGE2_PROFILE)'; expected probe or engine-init)
+endif
+else ifeq ($(SATURN_PLATFORM_SLIM_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_slim_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_PLATFORM_SKIP_PREPARE_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_static_sprite_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_PLATFORM_SKIP_INIT_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_static_sprite_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_PLATFORM_STATIC_SPRITE_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_static_sprite_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_PLATFORM_SPRITE_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_sprite_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_PLATFORM_VBLANK_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_vblank_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_PLATFORM_CALLBACK_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_callback_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_PLATFORM_ONLY_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_only_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_PLATFORM_INIT_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_init_probe.c \
+	src/platform/shared/common.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_ENTRY_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/entry_probe_runtime.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_PLATFORM_PROBE),1)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/platform.c \
+	src/platform/saturn/platform_probe.c \
+	src/platform/shared/common.c \
+	src/platform/shared/dma.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_MINIMAL_BOOT),1)
+LOCAL_C_SRCS := src/platform/saturn/minimal_main.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_FULL_LINK_PROBE),1)
 LOCAL_C_SRCS := $(shell find src -name "*.c" -not -path "*/platform/win32/*" -not -path "*/platform/pret_sdl/*" -not -path "*/platform/ps2/*")
 LOCAL_C_SRCS := $(filter-out \
+	src/main.c \
+	src/platform/saturn/bss_guard.c \
+	src/platform/saturn/entry_probe_runtime.c \
+	src/platform/saturn/full_link_probe.c \
+	src/platform/saturn/minimal_main.c \
+	src/platform/saturn/platform_callback_probe.c \
+	src/platform/saturn/platform_init_probe.c \
+	src/platform/saturn/platform_memory_probe.c \
+	src/platform/saturn/platform_only_probe.c \
+	src/platform/saturn/platform_probe.c \
+	src/platform/saturn/platform_slim_probe.c \
+	src/platform/saturn/platform_sprite_probe.c \
+	src/platform/saturn/platform_static_sprite_probe.c \
+	src/platform/saturn/platform_vblank_probe.c \
+	src/platform/saturn/stage2_probe_main.c \
+	src/platform/saturn/stage2_game_probe.c \
 	src/lib/m4a/m4a.c \
 	src/lib/m4a/m4a_tables.c \
 	src/platform/shared/audio/cgb_audio.c \
 	src/platform/shared/audio/m4a_sound_mixer.c, \
 	$(LOCAL_C_SRCS))
+LOCAL_C_SRCS += src/platform/saturn/full_link_probe.c src/platform/saturn/bss_guard.c
 LOCAL_CXX_SRCS := $(shell find src -name "*.cc")
+ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),data-sa2)
+LOCAL_C_SRCS := $(filter-out $(shell find src/data/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(wildcard $(DATA_ASM_SUBDIR)/*.s),$(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s)))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),game-data-sa2)
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/data/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(wildcard $(DATA_ASM_SUBDIR)/*.s),$(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s)))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),game-data-stage)
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/data/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/stage -name "*.c"),$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(wildcard $(DATA_ASM_SUBDIR)/*.s),$(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s)))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),content-stack)
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/data/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/stage -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/multiplayer -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/collect_rings -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/menus -name "*.c"),$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(wildcard $(DATA_ASM_SUBDIR)/*.s),$(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s)))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),content-core)
+LOCAL_C_SRCS := \
+	src/platform/saturn/main.c \
+	src/platform/saturn/entry_probe_runtime.c \
+	src/platform/saturn/full_link_probe.c
+LOCAL_CXX_SRCS :=
+DATA_ASM_SRCS :=
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),content-core-plus-stage)
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/data/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/multiplayer -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/collect_rings -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/menus -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out src/game/game.c src/game/decomp_credits.c,$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(wildcard $(DATA_ASM_SUBDIR)/*.s),$(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s)))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),content-core-plus-stage-data)
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/multiplayer -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/collect_rings -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/menus -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out src/game/game.c src/game/decomp_credits.c,$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),content-core-plus-data)
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/stage -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/multiplayer -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/collect_rings -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/menus -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out src/game/game.c src/game/decomp_credits.c,$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),content-core-plus-game)
+LOCAL_C_SRCS := $(filter-out $(shell find src/data/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/stage -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/multiplayer -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/collect_rings -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/menus -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out src/game/game.c src/game/decomp_credits.c,$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(wildcard $(DATA_ASM_SUBDIR)/*.s),$(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s)))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),content-core-plus-shared)
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/data/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/stage -name "*.c"),$(LOCAL_C_SRCS))
+LOCAL_C_SRCS := $(filter-out src/game/game.c src/game/decomp_credits.c,$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(wildcard $(DATA_ASM_SUBDIR)/*.s),$(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s)))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),game-entry-core)
+LOCAL_C_SRCS := $(filter-out src/game/game.c src/game/decomp_credits.c,$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),game-sa2)
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/sa2 -name "*.c"),$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),game-shared-stage)
+LOCAL_C_SRCS := $(filter-out $(shell find src/game/shared/stage -name "*.c"),$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),gpsp-renderer)
+LOCAL_CXX_SRCS := $(filter-out src/platform/shared/video/gpsp_renderer.cc,$(shell find src -name "*.cc"))
+DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
+else ifeq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),agb-flash)
+LOCAL_C_SRCS := $(filter-out $(shell find src/lib/agb_flash -name "*.c"),$(LOCAL_C_SRCS))
+DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
+else ifneq ($(SATURN_FULL_LINK_PROBE_EXCLUDE),)
+$(error Unsupported SATURN_FULL_LINK_PROBE_EXCLUDE='$(SATURN_FULL_LINK_PROBE_EXCLUDE)'; expected empty, content-core, content-core-plus-data, content-core-plus-game, content-core-plus-shared, content-core-plus-stage, content-core-plus-stage-data, content-stack, data-sa2, game-data-sa2, game-data-stage, game-entry-core, game-sa2, game-shared-stage, gpsp-renderer, or agb-flash)
+else
+DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
+endif
+else
+LOCAL_C_SRCS := $(shell find src -name "*.c" -not -path "*/platform/win32/*" -not -path "*/platform/pret_sdl/*" -not -path "*/platform/ps2/*")
+LOCAL_C_SRCS := $(filter-out \
+	src/platform/saturn/bss_guard.c \
+	src/platform/saturn/entry_probe_runtime.c \
+	src/platform/saturn/full_link_probe.c \
+	src/platform/saturn/minimal_main.c \
+	src/platform/saturn/platform_callback_probe.c \
+	src/platform/saturn/platform_init_probe.c \
+	src/platform/saturn/platform_memory_probe.c \
+	src/platform/saturn/platform_only_probe.c \
+	src/platform/saturn/platform_probe.c \
+	src/platform/saturn/platform_slim_probe.c \
+	src/platform/saturn/platform_sprite_probe.c \
+	src/platform/saturn/platform_static_sprite_probe.c \
+	src/platform/saturn/platform_vblank_probe.c \
+	src/platform/saturn/stage2_probe_main.c \
+	src/platform/saturn/stage2_game_probe.c \
+	src/lib/m4a/m4a.c \
+	src/lib/m4a/m4a_tables.c \
+	src/platform/shared/audio/cgb_audio.c \
+	src/platform/shared/audio/m4a_sound_mixer.c, \
+	$(LOCAL_C_SRCS))
+LOCAL_C_SRCS += src/platform/saturn/bss_guard.c
+LOCAL_CXX_SRCS := $(shell find src -name "*.cc")
+DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
+endif
 JOENGINE_C_SRCS := $(JOENGINE_SRC)/font.c \
 	$(JOENGINE_SRC)/input.c \
 	$(JOENGINE_SRC)/physics.c \
@@ -180,6 +589,7 @@ JOENGINE_C_SRCS := $(JOENGINE_SRC)/font.c \
 	$(JOENGINE_SRC)/math.c \
 	$(JOENGINE_SRC)/malloc.c \
 	$(JOENGINE_SRC)/tools.c \
+	$(JOENGINE_SRC)/fs.c \
 	$(JOENGINE_SRC)/palette.c \
 	$(JOENGINE_SRC)/sprites.c \
 	$(JOENGINE_SRC)/map.c \
@@ -191,7 +601,6 @@ JOENGINE_C_SRCS := $(JOENGINE_SRC)/font.c \
 	$(JOENGINE_SRC)/vdp1_command_pipeline.c \
 	$(JOENGINE_SRC)/vdp2_malloc.c \
 	$(JOENGINE_SRC)/3d.c
-DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/sound_data.s,$(wildcard $(DATA_ASM_SUBDIR)/*.s))
 SONG_SRCS :=
 MID_SRCS :=
 
@@ -266,10 +675,18 @@ $(TARGET): $(OBJS)
 
 $(RAW): $(TARGET)
 	$(OBJCOPY) -O binary $< $@
+	@raw_size=$$(wc -c < "$@"); \
+	if [ "$(SATURN_STAGE2_ONLY)" != "1" ] && [ $$raw_size -gt $(SATURN_BOOT_RAW_MAX_BYTES) ]; then \
+		echo "ERROR: $@ is $$raw_size bytes, which is too large for the current Saturn first-stage boot path." >&2; \
+		echo "Hint: keep the boot image small (the default uses SATURN_FULL_LINK_PROBE_EXCLUDE=content-core) or add staged CD loading." >&2; \
+		exit 1; \
+	fi
 
-$(ENTRY): $(RAW)
+$(IPFILE):
 	@mkdir -p $(DISC_DIR)
 	cp $(JOENGINE_COMPILER)/COMMON/IP.BIN $(IPFILE)
+
+$(ENTRY): $(RAW) $(IPFILE)
 	cp $(RAW) $(ENTRY)
 
 $(CD_ENTRY): $(RAW)
@@ -288,8 +705,17 @@ $(CPYFILE):
 	@mkdir -p $(CD_DIR)
 	: > $@
 
-$(ISO): $(CD_ENTRY) $(ABSFILE) $(BIBFILE) $(CPYFILE) $(IPFILE)
-	$(MKISOFS) $(MKISOFS_FLAGS)
+ifeq ($(SATURN_STAGE2_ONLY),0)
+$(SATURN_STAGE2_RAW):
+	$(MAKE) -f Makefile.saturn SATURN_STAGE2_ONLY=1 SATURN_STAGE1_LOADER=0 SATURN_BOOTABLE_DEFAULT=0
+
+$(SATURN_STAGE2_CD_FILE): $(SATURN_STAGE2_RAW)
+	@mkdir -p $(CD_DIR)
+	cp $(SATURN_STAGE2_RAW) $@
+endif
+
+$(ISO): $(CD_ENTRY) $(ABSFILE) $(BIBFILE) $(CPYFILE) $(IPFILE) $(EXTRA_CD_FILES)
+	cd "$(OUT_DIR)" && $(MKISOFS) $(MKISOFS_FLAGS)
 
 $(CUE): $(ISO)
 	cd "$(OUT_DIR)" && $(CUE_MAKER)
