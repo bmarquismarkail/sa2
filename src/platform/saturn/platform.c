@@ -114,68 +114,228 @@ static void PlatformSaturn_DrawBootOverlay(void)
 #endif
 }
 
+#if SATURN_PROBE_VISUALS
+static void PlatformSaturn_FillRect(s32 left, s32 top, s32 right, s32 bottom, u16 color)
+{
+    if (left < 0)
+        left = 0;
+    if (top < 0)
+        top = 0;
+    if (right > DISPLAY_WIDTH)
+        right = DISPLAY_WIDTH;
+    if (bottom > DISPLAY_HEIGHT)
+        bottom = DISPLAY_HEIGHT;
+
+    for (s32 y = top; y < bottom; ++y) {
+        for (s32 x = left; x < right; ++x) {
+            sGameImage[(y * DISPLAY_WIDTH) + x] = color;
+        }
+    }
+}
+
+static void PlatformSaturn_DrawGlyph3x5(s32 x, s32 y, char ch, u16 color, s32 scale)
+{
+    u8 rows[5] = { 0 };
+
+    switch (ch) {
+        case 'A': rows[0] = 0x7; rows[1] = 0x5; rows[2] = 0x7; rows[3] = 0x5; rows[4] = 0x5; break;
+        case 'B': rows[0] = 0x6; rows[1] = 0x5; rows[2] = 0x6; rows[3] = 0x5; rows[4] = 0x6; break;
+        case 'C': rows[0] = 0x7; rows[1] = 0x4; rows[2] = 0x4; rows[3] = 0x4; rows[4] = 0x7; break;
+        case 'D': rows[0] = 0x6; rows[1] = 0x5; rows[2] = 0x5; rows[3] = 0x5; rows[4] = 0x6; break;
+        case 'E': rows[0] = 0x7; rows[1] = 0x4; rows[2] = 0x6; rows[3] = 0x4; rows[4] = 0x7; break;
+        case 'F': rows[0] = 0x7; rows[1] = 0x4; rows[2] = 0x6; rows[3] = 0x4; rows[4] = 0x4; break;
+        case 'G': rows[0] = 0x7; rows[1] = 0x4; rows[2] = 0x5; rows[3] = 0x5; rows[4] = 0x7; break;
+        case 'H': rows[0] = 0x5; rows[1] = 0x5; rows[2] = 0x7; rows[3] = 0x5; rows[4] = 0x5; break;
+        case 'I': rows[0] = 0x7; rows[1] = 0x2; rows[2] = 0x2; rows[3] = 0x2; rows[4] = 0x7; break;
+        case 'J': rows[0] = 0x1; rows[1] = 0x1; rows[2] = 0x1; rows[3] = 0x5; rows[4] = 0x7; break;
+        case 'K': rows[0] = 0x5; rows[1] = 0x5; rows[2] = 0x6; rows[3] = 0x5; rows[4] = 0x5; break;
+        case 'L': rows[0] = 0x4; rows[1] = 0x4; rows[2] = 0x4; rows[3] = 0x4; rows[4] = 0x7; break;
+        case 'M': rows[0] = 0x5; rows[1] = 0x7; rows[2] = 0x7; rows[3] = 0x5; rows[4] = 0x5; break;
+        case 'N': rows[0] = 0x5; rows[1] = 0x7; rows[2] = 0x7; rows[3] = 0x7; rows[4] = 0x5; break;
+        case 'O': rows[0] = 0x7; rows[1] = 0x5; rows[2] = 0x5; rows[3] = 0x5; rows[4] = 0x7; break;
+        case 'P': rows[0] = 0x7; rows[1] = 0x5; rows[2] = 0x7; rows[3] = 0x4; rows[4] = 0x4; break;
+        case 'Q': rows[0] = 0x7; rows[1] = 0x5; rows[2] = 0x5; rows[3] = 0x7; rows[4] = 0x1; break;
+        case 'R': rows[0] = 0x7; rows[1] = 0x5; rows[2] = 0x7; rows[3] = 0x6; rows[4] = 0x5; break;
+        case 'S': rows[0] = 0x7; rows[1] = 0x4; rows[2] = 0x7; rows[3] = 0x1; rows[4] = 0x7; break;
+        case 'T': rows[0] = 0x7; rows[1] = 0x2; rows[2] = 0x2; rows[3] = 0x2; rows[4] = 0x2; break;
+        case 'U': rows[0] = 0x5; rows[1] = 0x5; rows[2] = 0x5; rows[3] = 0x5; rows[4] = 0x7; break;
+        case 'V': rows[0] = 0x5; rows[1] = 0x5; rows[2] = 0x5; rows[3] = 0x5; rows[4] = 0x2; break;
+        case 'W': rows[0] = 0x5; rows[1] = 0x5; rows[2] = 0x7; rows[3] = 0x7; rows[4] = 0x5; break;
+        case 'X': rows[0] = 0x5; rows[1] = 0x5; rows[2] = 0x2; rows[3] = 0x5; rows[4] = 0x5; break;
+        case 'Y': rows[0] = 0x5; rows[1] = 0x5; rows[2] = 0x2; rows[3] = 0x2; rows[4] = 0x2; break;
+        case 'Z': rows[0] = 0x7; rows[1] = 0x1; rows[2] = 0x2; rows[3] = 0x4; rows[4] = 0x7; break;
+        case '0': rows[0] = 0x7; rows[1] = 0x5; rows[2] = 0x5; rows[3] = 0x5; rows[4] = 0x7; break;
+        case '1': rows[0] = 0x2; rows[1] = 0x6; rows[2] = 0x2; rows[3] = 0x2; rows[4] = 0x7; break;
+        case '2': rows[0] = 0x7; rows[1] = 0x1; rows[2] = 0x7; rows[3] = 0x4; rows[4] = 0x7; break;
+        case '3': rows[0] = 0x7; rows[1] = 0x1; rows[2] = 0x7; rows[3] = 0x1; rows[4] = 0x7; break;
+        case '4': rows[0] = 0x5; rows[1] = 0x5; rows[2] = 0x7; rows[3] = 0x1; rows[4] = 0x1; break;
+        case '5': rows[0] = 0x7; rows[1] = 0x4; rows[2] = 0x7; rows[3] = 0x1; rows[4] = 0x7; break;
+        case '6': rows[0] = 0x7; rows[1] = 0x4; rows[2] = 0x7; rows[3] = 0x5; rows[4] = 0x7; break;
+        case '7': rows[0] = 0x7; rows[1] = 0x1; rows[2] = 0x1; rows[3] = 0x2; rows[4] = 0x2; break;
+        case '8': rows[0] = 0x7; rows[1] = 0x5; rows[2] = 0x7; rows[3] = 0x5; rows[4] = 0x7; break;
+        case '9': rows[0] = 0x7; rows[1] = 0x5; rows[2] = 0x7; rows[3] = 0x1; rows[4] = 0x7; break;
+        case ':': rows[0] = 0x0; rows[1] = 0x2; rows[2] = 0x0; rows[3] = 0x2; rows[4] = 0x0; break;
+        case '>': rows[0] = 0x1; rows[1] = 0x2; rows[2] = 0x4; rows[3] = 0x2; rows[4] = 0x1; break;
+        case '-': rows[0] = 0x0; rows[1] = 0x0; rows[2] = 0x7; rows[3] = 0x0; rows[4] = 0x0; break;
+        case '/': rows[0] = 0x1; rows[1] = 0x1; rows[2] = 0x2; rows[3] = 0x4; rows[4] = 0x4; break;
+        case ' ': return;
+        default:  rows[0] = 0x7; rows[1] = 0x1; rows[2] = 0x2; rows[3] = 0x0; rows[4] = 0x2; break;
+    }
+
+    for (s32 row = 0; row < 5; ++row) {
+        for (s32 col = 0; col < 3; ++col) {
+            if ((rows[row] & (1u << (2 - col))) != 0) {
+                PlatformSaturn_FillRect(x + (col * scale), y + (row * scale), x + ((col + 1) * scale), y + ((row + 1) * scale), color);
+            }
+        }
+    }
+}
+
+static void PlatformSaturn_DrawText3x5(s32 x, s32 y, const char *text, u16 color, s32 scale)
+{
+    const s32 startX = x;
+
+    if (text == NULL)
+        return;
+
+    for (; *text != '\0'; ++text) {
+        if (*text == '\n') {
+            x = startX;
+            y += (scale * 6);
+            continue;
+        }
+
+        PlatformSaturn_DrawGlyph3x5(x, y, *text, color, scale);
+        x += (scale * 4);
+    }
+}
+#else
+static inline void PlatformSaturn_FillRect(s32 left, s32 top, s32 right, s32 bottom, u16 color)
+{
+    (void)left;
+    (void)top;
+    (void)right;
+    (void)bottom;
+    (void)color;
+}
+
+static inline void PlatformSaturn_DrawText3x5(s32 x, s32 y, const char *text, u16 color, s32 scale)
+{
+    (void)x;
+    (void)y;
+    (void)text;
+    (void)color;
+    (void)scale;
+}
+#endif
+
 static bool PlatformSaturn_DrawTitleShellFrame(void)
 {
 #if SATURN_PROBE_SLIM_PLATFORM
     return false;
 #else
     u16 bg = RGB_BLUE;
-    u16 panel = 0;
-    u16 accent = RGB_WHITE;
-    s32 bars = 3;
+    u16 panel = RGB_WHITE;
+    u16 accent = 0;
+    u16 highlight = RGB_RED;
+    const char *headline = "PRESS START";
+    const char *subline = "START ENTERS MENU";
+    bool drawMenu = false;
+    s32 menuSelection = -1;
 
     if ((sBootStage == NULL) || (strncmp(sBootStage, "Saturn title:", 13) != 0)) {
         return false;
     }
 
-    if (strstr(sBootStage, "START selected") != NULL) {
-        bg = RGB_WHITE;
-        panel = RGB_RED;
-        accent = RGB_BLUE;
-        bars = 4;
-    } else if (strstr(sBootStage, "A placeholder") != NULL) {
-        bg = RGB_RED;
-        panel = 0;
-        accent = RGB_WHITE;
-    } else if (strstr(sBootStage, "B placeholder") != NULL) {
-        bg = 0;
-        panel = RGB_BLUE;
-        accent = RGB_WHITE;
-    } else if (strstr(sBootStage, "MENU DOWN") != NULL) {
+    if (strstr(sBootStage, "MENU START") != NULL) {
+        drawMenu = true;
+        menuSelection = 0;
+        headline = "MAIN MENU";
+        subline = "UP DOWN MOVE";
+    } else if (strstr(sBootStage, "MENU OPTIONS") != NULL) {
         bg = RGB_RED;
         panel = RGB_WHITE;
         accent = 0;
-        bars = 2;
-    } else if (strstr(sBootStage, "MENU UP") != NULL) {
-        bg = RGB_BLUE;
+        highlight = RGB_BLUE;
+        drawMenu = true;
+        menuSelection = 1;
+        headline = "MAIN MENU";
+        subline = "UP DOWN MOVE";
+    } else if (strstr(sBootStage, "MENU BACK") != NULL) {
+        bg = 0;
         panel = RGB_WHITE;
+        accent = RGB_BLUE;
+        highlight = RGB_RED;
+        drawMenu = true;
+        menuSelection = 2;
+        headline = "MAIN MENU";
+        subline = "UP DOWN MOVE";
+    } else if (strstr(sBootStage, "START selected") != NULL) {
+        bg = RGB_WHITE;
+        panel = RGB_BLUE;
         accent = RGB_RED;
-        bars = 2;
+        highlight = RGB_WHITE;
+        headline = "START MODE";
+        subline = "PRESS START AGAIN";
+    } else if (strstr(sBootStage, "OPTIONS selected") != NULL) {
+        bg = RGB_RED;
+        panel = RGB_WHITE;
+        accent = 0;
+        highlight = RGB_BLUE;
+        headline = "OPTIONS";
+        subline = "PLACEHOLDER";
+    } else if (strstr(sBootStage, "BACK to title") != NULL) {
+        bg = 0;
+        panel = RGB_WHITE;
+        accent = RGB_BLUE;
+        highlight = RGB_RED;
+        headline = "BACK TO TITLE";
+        subline = "PRESS START";
+    } else if (strstr(sBootStage, "PROCEED placeholder") != NULL) {
+        bg = RGB_WHITE;
+        panel = RGB_RED;
+        accent = RGB_BLUE;
+        highlight = RGB_WHITE;
+        headline = "PROCEED";
+        subline = "PLACEHOLDER";
+    } else if (strstr(sBootStage, "EXIT") != NULL) {
+        bg = RGB_RED;
+        panel = 0;
+        accent = RGB_WHITE;
+        highlight = RGB_WHITE;
+        headline = "EXIT";
+        subline = "SHELL CLOSED";
     } else if (strstr(sBootStage, "SHELL OK") != NULL) {
         bg = 0;
         panel = RGB_WHITE;
         accent = RGB_BLUE;
+        highlight = RGB_RED;
+        headline = "SHELL OK";
+        subline = "PRESS START";
     }
 
     PlatformSaturn_FillDebugImage(bg);
+    PlatformSaturn_FillRect(14, 18, 226, 142, panel);
+    PlatformSaturn_FillRect(20, 24, 220, 52, accent);
+    PlatformSaturn_DrawText3x5(28, 30, "SATURN MENU", panel, 3);
 
-    for (s32 y = 44; y < 116; ++y) {
-        for (s32 x = 24; x < 216; ++x) {
-            sGameImage[(y * DISPLAY_WIDTH) + x] = panel;
+    if (drawMenu) {
+        static const char *const sMenuLines[] = {
+            "> START",
+            "> OPTIONS",
+            "> BACK",
+        };
+
+        PlatformSaturn_DrawText3x5(34, 62, headline, accent, 3);
+        for (s32 i = 0; i < 3; ++i) {
+            const u16 lineColor = (i == menuSelection) ? highlight : accent;
+            PlatformSaturn_DrawText3x5(36, 84 + (i * 16), sMenuLines[i], lineColor, 3);
         }
-    }
-
-    for (s32 i = 0; i < bars; ++i) {
-        const s32 y0 = 56 + (i * 16);
-        const s32 y1 = y0 + 8;
-        const s32 x0 = 40;
-        const s32 x1 = 200 - (i * 16);
-
-        for (s32 y = y0; y < y1; ++y) {
-            for (s32 x = x0; x < x1; ++x) {
-                sGameImage[(y * DISPLAY_WIDTH) + x] = accent;
-            }
-        }
+        PlatformSaturn_DrawText3x5(28, 132, "A START OK  B BACK", accent, 2);
+    } else {
+        PlatformSaturn_DrawText3x5(28, 64, headline, accent, 4);
+        PlatformSaturn_DrawText3x5(28, 104, subline, accent, 2);
+        PlatformSaturn_DrawText3x5(28, 124, "UP DOWN  A B START", accent, 2);
     }
 
     return true;
@@ -313,12 +473,12 @@ void PlatformSaturn_SetBootStage(const char *stage)
 
         if (strncmp(sBootStage, "Saturn title:", 13) == 0) {
             color = JO_COLOR_Blue;
-            if (strstr(sBootStage, "START selected") != NULL) {
+            if (strstr(sBootStage, "START selected") != NULL || strstr(sBootStage, "PROCEED placeholder") != NULL) {
                 color = JO_COLOR_White;
-            } else if (strstr(sBootStage, "A placeholder") != NULL) {
-                color = JO_COLOR_Red;
-            } else if (strstr(sBootStage, "B placeholder") != NULL) {
+            } else if (strstr(sBootStage, "MENU OPTIONS") != NULL || strstr(sBootStage, "OPTIONS selected") != NULL) {
                 color = JO_COLOR_Purple;
+            } else if (strstr(sBootStage, "MENU BACK") != NULL || strstr(sBootStage, "BACK to title") != NULL) {
+                color = JO_COLOR_Red;
             }
         } else if (strstr(sBootStage, "stage2 returned") != NULL) {
             color = JO_COLOR_Green;

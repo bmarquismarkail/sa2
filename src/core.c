@@ -598,11 +598,33 @@ void EngineMainLoop(void)
 {
 #if PLATFORM_SATURN && SATURN_STAGE2_ONLY
     {
+        enum {
+            SATURN_MENU_STATE_TITLE,
+            SATURN_MENU_STATE_SELECT,
+            SATURN_MENU_STATE_ACTION,
+        };
+        static const char *const sMenuStages[] = {
+            "Saturn title: MENU START",
+            "Saturn title: MENU OPTIONS",
+            "Saturn title: MENU BACK",
+        };
+        static const char *const sActionStages[] = {
+            "Saturn title: START selected",
+            "Saturn title: OPTIONS selected",
+            "Saturn title: BACK to title",
+        };
         u32 saturnShellFrames = 0;
+        u16 prevKeys = 0;
+        u8 menuState = SATURN_MENU_STATE_TITLE;
+        u8 menuSelection = 0;
+
+        PlatformSaturn_SetBootStage("Saturn title: PRESS START");
 
         for (;;) {
             const u16 directKeys = PlatformSaturn_GetKeyInput();
+            const u16 pressedKeys = directKeys & ~prevKeys;
             ++saturnShellFrames;
+            prevKeys = directKeys;
 
             if ((directKeys & (L_BUTTON | R_BUTTON | START_BUTTON)) == (L_BUTTON | R_BUTTON | START_BUTTON)) {
                 PlatformSaturn_SetBootStage("Saturn title: EXIT");
@@ -610,20 +632,50 @@ void EngineMainLoop(void)
                 return;
             }
 
-            if (directKeys & START_BUTTON) {
-                PlatformSaturn_SetBootStage("Saturn title: START selected");
-            } else if (directKeys & A_BUTTON) {
-                PlatformSaturn_SetBootStage("Saturn title: A placeholder");
-            } else if (directKeys & B_BUTTON) {
-                PlatformSaturn_SetBootStage("Saturn title: B placeholder");
-            } else if (directKeys & DPAD_UP) {
-                PlatformSaturn_SetBootStage("Saturn title: MENU UP");
-            } else if (directKeys & DPAD_DOWN) {
-                PlatformSaturn_SetBootStage("Saturn title: MENU DOWN");
-            } else if ((saturnShellFrames & 0x20) == 0) {
-                PlatformSaturn_SetBootStage("Saturn title: PRESS START");
-            } else {
-                PlatformSaturn_SetBootStage("Saturn title: SHELL OK");
+            switch (menuState) {
+                case SATURN_MENU_STATE_TITLE:
+                    if (pressedKeys & START_BUTTON) {
+                        menuState = SATURN_MENU_STATE_SELECT;
+                        menuSelection = 0;
+                        PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
+                    } else if ((saturnShellFrames & 0x20) == 0) {
+                        PlatformSaturn_SetBootStage("Saturn title: PRESS START");
+                    } else {
+                        PlatformSaturn_SetBootStage("Saturn title: SHELL OK");
+                    }
+                    break;
+
+                case SATURN_MENU_STATE_SELECT:
+                    if (pressedKeys & DPAD_UP) {
+                        menuSelection = (menuSelection == 0) ? 2 : (menuSelection - 1);
+                        PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
+                    } else if (pressedKeys & DPAD_DOWN) {
+                        menuSelection = (menuSelection + 1) % ARRAY_COUNT(sMenuStages);
+                        PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
+                    } else if (pressedKeys & B_BUTTON) {
+                        menuState = SATURN_MENU_STATE_TITLE;
+                        PlatformSaturn_SetBootStage("Saturn title: PRESS START");
+                    } else if (pressedKeys & (A_BUTTON | START_BUTTON)) {
+                        if (menuSelection == 2) {
+                            menuState = SATURN_MENU_STATE_TITLE;
+                            PlatformSaturn_SetBootStage("Saturn title: BACK to title");
+                        } else {
+                            menuState = SATURN_MENU_STATE_ACTION;
+                            PlatformSaturn_SetBootStage(sActionStages[menuSelection]);
+                        }
+                    }
+                    break;
+
+                default:
+                    if (pressedKeys & B_BUTTON) {
+                        menuState = SATURN_MENU_STATE_SELECT;
+                        PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
+                    } else if (pressedKeys & A_BUTTON) {
+                        PlatformSaturn_SetBootStage(sActionStages[menuSelection]);
+                    } else if (pressedKeys & START_BUTTON) {
+                        PlatformSaturn_SetBootStage("Saturn title: PROCEED placeholder");
+                    }
+                    break;
             }
 
             VBlankIntrWait();
