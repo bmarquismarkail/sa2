@@ -469,6 +469,7 @@ sdl_psp: ; @$(MAKE) PLATFORM=sdl_psp
 ps2: ; @$(MAKE) PLATFORM=ps2
 
 saturn: ; @$(MAKE) -f Makefile.saturn
+saturn-run: ; @$(MAKE) -f Makefile.saturn run
 
 tas_sdl: ; @$(MAKE) sdl TAS_TESTING=1
 

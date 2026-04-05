@@ -32,13 +32,49 @@ PREPROC := tools/preproc/preproc$(EXE)
 OUT_DIR := build/saturn/$(BUILD_NAME)
 OBJ_DIR := $(OUT_DIR)/obj
 DISC_DIR := $(OUT_DIR)/disc
+CD_DIR := $(DISC_DIR)/cd
 
 TARGET := $(OUT_DIR)/$(BUILD_NAME).saturn.elf
 RAW := $(OUT_DIR)/$(BUILD_NAME).saturn.raw
 MAP := $(OUT_DIR)/$(BUILD_NAME).saturn.map
+ISO := $(OUT_DIR)/$(BUILD_NAME).iso
+CUE := $(OUT_DIR)/$(BUILD_NAME).cue
 ENTRY := $(DISC_DIR)/1ST_READ.BIN
+CD_ENTRY := $(CD_DIR)/0.bin
 IPFILE := $(DISC_DIR)/IP.BIN
+ABSFILE := $(CD_DIR)/ABS.TXT
+BIBFILE := $(CD_DIR)/BIB.TXT
+CPYFILE := $(CD_DIR)/CPY.TXT
 LINKER_SCRIPT := $(JOENGINE_COMPILER)/COMMON/sgl.linker
+CUE_MAKER := "$(JOENGINE_COMPILER)/LINUX/Other Utilities/CueMaker"
+MKISOFS := mkisofs
+SATURN_DISC_NAME := SA2
+
+ifeq ($(wildcard $(JOENGINE_COMPILER)/COMMON/IP.BIN),)
+$(error Jo Engine IP.BIN was not found at '$(JOENGINE_COMPILER)/COMMON/IP.BIN')
+endif
+ifeq ($(shell test -x "$(JOENGINE_COMPILER)/LINUX/Other Utilities/CueMaker" && printf yes),)
+$(error Jo Engine CueMaker was not found at '$(JOENGINE_COMPILER)/LINUX/Other Utilities/CueMaker')
+endif
+ifeq ($(shell command -v $(MKISOFS) 2>/dev/null),)
+$(error mkisofs was not found in PATH. Install it before building the Saturn disc image)
+endif
+
+MKISOFS_FLAGS := -quiet \
+	-sysid "SEGA SATURN" \
+	-volid "$(SATURN_DISC_NAME)" \
+	-volset "$(SATURN_DISC_NAME)" \
+	-sectype 2352 \
+	-publisher "SEGA ENTERPRISES, LTD." \
+	-preparer "SEGA ENTERPRISES, LTD." \
+	-appid "$(SATURN_DISC_NAME)" \
+	-abstract "$(ABSFILE)" \
+	-copyright "$(CPYFILE)" \
+	-biblio "$(BIBFILE)" \
+	-generic-boot "$(IPFILE)" \
+	-full-iso9660-filenames \
+	-o "$(ISO)" \
+	"$(CD_DIR)"
 
 INCLUDE_DIRS := include
 INCLUDE_CPP_ARGS := $(INCLUDE_DIRS:%=-iquote %)
@@ -173,9 +209,9 @@ JOENGINE_DEPS := $(patsubst $(JOENGINE_ROOT)/%.c,$(OBJ_DIR)/joengine/%.d,$(JOENG
 DATA_ASM_DEPS := $(patsubst $(DATA_ASM_SUBDIR)/%.s,$(DATA_ASM_BUILDDIR)/%.d,$(DATA_ASM_SRCS))
 SONG_DEPS := $(patsubst $(SONG_SUBDIR)/%.s,$(SONG_BUILDDIR)/%.d,$(SONG_SRCS))
 
-.PHONY: all clean tools $(TOOLDIRS)
+.PHONY: all clean run tools $(TOOLDIRS)
 
-all: tools $(ENTRY)
+all: tools $(ENTRY) $(ISO) $(CUE)
 
 include graphics.mk
 
@@ -235,6 +271,31 @@ $(ENTRY): $(RAW)
 	@mkdir -p $(DISC_DIR)
 	cp $(JOENGINE_COMPILER)/COMMON/IP.BIN $(IPFILE)
 	cp $(RAW) $(ENTRY)
+
+$(CD_ENTRY): $(RAW)
+	@mkdir -p $(CD_DIR)
+	cp $(RAW) $@
+
+$(ABSFILE):
+	@mkdir -p $(CD_DIR)
+	printf 'NOT Abstracted by SEGA\n' > $@
+
+$(BIBFILE):
+	@mkdir -p $(CD_DIR)
+	printf 'NOT Bibliographiced by SEGA\n' > $@
+
+$(CPYFILE):
+	@mkdir -p $(CD_DIR)
+	: > $@
+
+$(ISO): $(CD_ENTRY) $(ABSFILE) $(BIBFILE) $(CPYFILE) $(IPFILE)
+	$(MKISOFS) $(MKISOFS_FLAGS)
+
+$(CUE): $(ISO)
+	cd "$(OUT_DIR)" && $(CUE_MAKER)
+
+run: $(CUE)
+	yabause -a -i "$(CUE)"
 
 tools:
 	@$(MAKE) -f Makefile tools NODEP=1
