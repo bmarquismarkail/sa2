@@ -9,6 +9,7 @@
 #include "input_recorder.h"
 #include "lib/m4a/m4a.h"
 #include "lib/agb_flash/agb_flash.h"
+#include "constants/songs.h"
 #if PLATFORM_SATURN
 #include "game/dummy_task.h"
 #include "platform/saturn/platform.h"
@@ -325,7 +326,9 @@ void EngineInit(void)
     gVramHeapStartAddr = OBJ_VRAM1 - (VRAM_HEAP_TILE_COUNT * TILE_SIZE_4BPP);
     VramResetHeapState();
 
-    gFlags |= FLAGS_NO_FLASH_MEMORY;
+    if (!PlatformSaturn_HasSaveBackend()) {
+        gFlags |= FLAGS_NO_FLASH_MEMORY;
+    }
     gMultiSioStatusFlags = 0;
     gMultiSioEnabled = FALSE;
     return;
@@ -596,27 +599,42 @@ END_NONMATCH
 
 void EngineMainLoop(void)
 {
-#if PLATFORM_SATURN && SATURN_STAGE2_ONLY
+#if PLATFORM_SATURN && SATURN_STAGE2_SHELL
     {
         enum {
             SATURN_MENU_STATE_TITLE,
-            SATURN_MENU_STATE_SELECT,
-            SATURN_MENU_STATE_ACTION,
+            SATURN_MENU_STATE_MENU,
+            SATURN_MENU_STATE_OPTIONS,
+            SATURN_MENU_STATE_SOUND_TEST,
+        };
+        static const char *const sSoundStages[] = {
+            "Saturn sound: MENU SOUNDS",
+            "Saturn sound: TEST TONE",
+            "Saturn sound: BACK",
         };
         static const char *const sMenuStages[] = {
-            "Saturn title: MENU START",
+            "Saturn title: MENU START GAME",
             "Saturn title: MENU OPTIONS",
-            "Saturn title: MENU BACK",
+            "Saturn title: MENU SOUND TEST",
         };
         static const char *const sActionStages[] = {
-            "Saturn title: START selected",
-            "Saturn title: OPTIONS selected",
-            "Saturn title: BACK to title",
+            "Saturn title: START GAME",
+            "Saturn title: OPTIONS OPEN",
+            "Saturn title: SOUND TEST OPEN",
+        };
+        static const char *const sOptionStages[] = {
+            "Saturn options: BOOT TRAP",
+            "Saturn options: OVERLAY",
+            "Saturn options: THEME",
+            "Saturn options: BACK",
         };
         u32 saturnShellFrames = 0;
         u16 prevKeys = 0;
         u8 menuState = SATURN_MENU_STATE_TITLE;
         u8 menuSelection = 0;
+        u8 optionsSelection = 0;
+        u8 soundSelection = 0;
+        bool32 startGameRequested = FALSE;
 
         PlatformSaturn_SetBootStage("Saturn title: PRESS START");
 
@@ -625,6 +643,17 @@ void EngineMainLoop(void)
             const u16 pressedKeys = directKeys & ~prevKeys;
             ++saturnShellFrames;
             prevKeys = directKeys;
+
+            if ((pressedKeys & (DPAD_UP | DPAD_DOWN | A_BUTTON | START_BUTTON | B_BUTTON)) != 0
+                && PlatformSaturn_GetShellMenuSoundsEnabled()) {
+                if (pressedKeys & (DPAD_UP | DPAD_DOWN)) {
+                    m4aSongNumStart(SE_MENU_CURSOR_MOVE);
+                } else if (pressedKeys & B_BUTTON) {
+                    m4aSongNumStart(SE_RETURN);
+                } else if (pressedKeys & (A_BUTTON | START_BUTTON)) {
+                    m4aSongNumStart(SE_SELECT);
+                }
+            }
 
             if ((directKeys & (L_BUTTON | R_BUTTON | START_BUTTON)) == (L_BUTTON | R_BUTTON | START_BUTTON)) {
                 PlatformSaturn_SetBootStage("Saturn title: EXIT");
@@ -635,7 +664,7 @@ void EngineMainLoop(void)
             switch (menuState) {
                 case SATURN_MENU_STATE_TITLE:
                     if (pressedKeys & START_BUTTON) {
-                        menuState = SATURN_MENU_STATE_SELECT;
+                        menuState = SATURN_MENU_STATE_MENU;
                         menuSelection = 0;
                         PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
                     } else if ((saturnShellFrames & 0x20) == 0) {
@@ -645,7 +674,7 @@ void EngineMainLoop(void)
                     }
                     break;
 
-                case SATURN_MENU_STATE_SELECT:
+                case SATURN_MENU_STATE_MENU:
                     if (pressedKeys & DPAD_UP) {
                         menuSelection = (menuSelection == 0) ? 2 : (menuSelection - 1);
                         PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
@@ -656,26 +685,99 @@ void EngineMainLoop(void)
                         menuState = SATURN_MENU_STATE_TITLE;
                         PlatformSaturn_SetBootStage("Saturn title: PRESS START");
                     } else if (pressedKeys & (A_BUTTON | START_BUTTON)) {
-                        if (menuSelection == 2) {
-                            menuState = SATURN_MENU_STATE_TITLE;
-                            PlatformSaturn_SetBootStage("Saturn title: BACK to title");
-                        } else {
-                            menuState = SATURN_MENU_STATE_ACTION;
-                            PlatformSaturn_SetBootStage(sActionStages[menuSelection]);
+                        PlatformSaturn_SetBootStage(sActionStages[menuSelection]);
+                        switch (menuSelection) {
+                            case 0:
+                                startGameRequested = PlatformSaturn_StartGameBridge();
+                                break;
+
+                            case 1:
+                                menuState = SATURN_MENU_STATE_OPTIONS;
+                                optionsSelection = 0;
+                                PlatformSaturn_SetBootStage(sOptionStages[optionsSelection]);
+                                break;
+
+                            default:
+                                menuState = SATURN_MENU_STATE_SOUND_TEST;
+                                soundSelection = 0;
+                                PlatformSaturn_SetBootStage(sSoundStages[soundSelection]);
+                                break;
                         }
                     }
                     break;
 
-                default:
-                    if (pressedKeys & B_BUTTON) {
-                        menuState = SATURN_MENU_STATE_SELECT;
+                case SATURN_MENU_STATE_OPTIONS:
+                    if (pressedKeys & DPAD_UP) {
+                        {
+                            const u8 previousOption = (optionsSelection == 0) ? (u8)(ARRAY_COUNT(sOptionStages) - 1) : (u8)(optionsSelection - 1);
+                            optionsSelection = previousOption;
+                        }
+                        PlatformSaturn_SetBootStage(sOptionStages[optionsSelection]);
+                    } else if (pressedKeys & DPAD_DOWN) {
+                        optionsSelection = (optionsSelection + 1) % ARRAY_COUNT(sOptionStages);
+                        PlatformSaturn_SetBootStage(sOptionStages[optionsSelection]);
+                    } else if (pressedKeys & (A_BUTTON | START_BUTTON)) {
+                        switch (optionsSelection) {
+                            case 0:
+                                PlatformSaturn_SetShellBootTrapEnabled(!PlatformSaturn_GetShellBootTrapEnabled());
+                                PlatformSaturn_SetBootStage(sOptionStages[optionsSelection]);
+                                break;
+
+                            case 1:
+                                PlatformSaturn_SetShellOverlayEnabled(!PlatformSaturn_GetShellOverlayEnabled());
+                                PlatformSaturn_SetBootStage(sOptionStages[optionsSelection]);
+                                break;
+
+                            case 2:
+                                PlatformSaturn_SetShellTheme(PlatformSaturn_GetShellTheme() + 1);
+                                PlatformSaturn_SetBootStage(sOptionStages[optionsSelection]);
+                                break;
+
+                            default:
+                                menuState = SATURN_MENU_STATE_MENU;
+                                PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
+                                break;
+                        }
+                    } else if (pressedKeys & B_BUTTON) {
+                        menuState = SATURN_MENU_STATE_MENU;
                         PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
-                    } else if (pressedKeys & A_BUTTON) {
-                        PlatformSaturn_SetBootStage(sActionStages[menuSelection]);
-                    } else if (pressedKeys & START_BUTTON) {
-                        PlatformSaturn_SetBootStage("Saturn title: PROCEED placeholder");
                     }
                     break;
+
+                case SATURN_MENU_STATE_SOUND_TEST:
+                    if (pressedKeys & DPAD_UP) {
+                        soundSelection = (soundSelection == 0) ? (u8)(ARRAY_COUNT(sSoundStages) - 1) : (u8)(soundSelection - 1);
+                        PlatformSaturn_SetBootStage(sSoundStages[soundSelection]);
+                    } else if (pressedKeys & DPAD_DOWN) {
+                        soundSelection = (soundSelection + 1) % ARRAY_COUNT(sSoundStages);
+                        PlatformSaturn_SetBootStage(sSoundStages[soundSelection]);
+                    } else if (pressedKeys & (A_BUTTON | START_BUTTON)) {
+                        switch (soundSelection) {
+                            case 0:
+                                PlatformSaturn_SetShellMenuSoundsEnabled(!PlatformSaturn_GetShellMenuSoundsEnabled());
+                                PlatformSaturn_SetBootStage(sSoundStages[soundSelection]);
+                                break;
+
+                            case 1:
+                                m4aMPlayAllStop();
+                                m4aSongNumStart(SE_MENU_CURSOR_MOVE);
+                                PlatformSaturn_SetBootStage(sSoundStages[soundSelection]);
+                                break;
+
+                            default:
+                                menuState = SATURN_MENU_STATE_MENU;
+                                PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
+                                break;
+                        }
+                    } else if (pressedKeys & B_BUTTON) {
+                        menuState = SATURN_MENU_STATE_MENU;
+                        PlatformSaturn_SetBootStage(sMenuStages[menuSelection]);
+                    }
+                    break;
+            }
+
+            if (startGameRequested) {
+                break;
             }
 
             VBlankIntrWait();
@@ -697,11 +799,7 @@ void EngineMainLoop(void)
         }
 #endif
 
-#if PLATFORM_SATURN && SATURN_STAGE2_ONLY
-        {
-#else
         if (sLastCalledVblankFuncId == VBLANK_FUNC_ID_NONE) {
-#endif
             GetInput();
 
             if (gMultiSioEnabled) {
@@ -714,7 +812,7 @@ void EngineMainLoop(void)
 #endif
 
             TasksExec();
-#if PLATFORM_SATURN && SATURN_STAGE2_ONLY
+#if PLATFORM_SATURN && SATURN_STAGE2_SHELL
             if (gDummyTask == NULL) {
                 return;
             }

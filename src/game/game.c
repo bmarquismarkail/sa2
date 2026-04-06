@@ -34,44 +34,11 @@
 
 #include "data/sa2/sprite_tables.h"
 
-#if PLATFORM_SATURN
-#include "platform/saturn/platform.h"
-#endif
+static void GameInitSharedState(void);
 
-#ifndef COLLECT_RINGS_ROM
-void GameInit(void)
+static void GameInitSharedState(void)
 {
     u32 i;
-    bool32 hasProfile = FALSE;
-
-#if PLATFORM_SATURN && SATURN_STAGE2_ONLY
-    gTilemapsRef = NULL;
-    gRefSpriteTables = NULL;
-    gBgOffsetsPrimary = gBgOffsetsBuffer[0];
-    gBgOffsetsSecondary = gBgOffsetsBuffer[1];
-    gStageFlags = gPrevStageFlags = STAGE_FLAG__CLEAR;
-    gDummyTask = NULL;
-    gUnknown_0300543C = 0;
-    gGameMode = GAME_MODE_SINGLE_PLAYER;
-    gEntitiesManagerTask = NULL;
-    gDemoPlayCounter = 0;
-    gDestroySpotlights = 0;
-    gFlags |= FLAGS_NO_FLASH_MEMORY;
-
-    for (i = 0; i < 4; i++) {
-        gMultiplayerPlayerTasks[i] = NULL;
-        gMultiplayerCharacters[i] = 0;
-        gMultiplayerRanks[i] = 0;
-        gMultiplayerMissingHeartbeats[i] = 0;
-    }
-
-#if (GAME == GAME_SA1)
-    gTask_03006240 = 0;
-#endif
-
-    CreateDummyTask();
-    return;
-#endif
 
     // NOTE: cast because of const
     gTilemapsRef = (Tilemap **)gTilemaps;
@@ -112,6 +79,45 @@ void GameInit(void)
         gMultiplayerMissingHeartbeats[i] = 0;
     }
 
+}
+
+#ifndef COLLECT_RINGS_ROM
+void GameInit(void)
+{
+    bool32 hasProfile = FALSE;
+
+#if PLATFORM_SATURN && SATURN_STAGE2_SHELL
+    u32 i;
+
+    gTilemapsRef = NULL;
+    gRefSpriteTables = NULL;
+    gBgOffsetsPrimary = gBgOffsetsBuffer[0];
+    gBgOffsetsSecondary = gBgOffsetsBuffer[1];
+    gStageFlags = gPrevStageFlags = STAGE_FLAG__CLEAR;
+    gDummyTask = NULL;
+    gUnknown_0300543C = 0;
+    gGameMode = GAME_MODE_SINGLE_PLAYER;
+    gEntitiesManagerTask = NULL;
+    gDemoPlayCounter = 0;
+    gDestroySpotlights = 0;
+    gFlags |= FLAGS_NO_FLASH_MEMORY;
+
+    for (i = 0; i < 4; i++) {
+        gMultiplayerPlayerTasks[i] = NULL;
+        gMultiplayerCharacters[i] = 0;
+        gMultiplayerRanks[i] = 0;
+        gMultiplayerMissingHeartbeats[i] = 0;
+    }
+
+#if (GAME == GAME_SA1)
+    gTask_03006240 = 0;
+#endif
+
+    CreateDummyTask();
+    return;
+#endif
+
+    GameInitSharedState();
     SaveInit();
 
     if (SaveGameExists()) {
@@ -167,6 +173,7 @@ void GameInit(void)
     CreateTitleScreen();
 #endif
 }
+
 #else
 void GameInit(void)
 {

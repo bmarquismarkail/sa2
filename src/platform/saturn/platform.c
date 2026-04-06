@@ -1,10 +1,12 @@
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 #if !SATURN_PROBE_SLIM_PLATFORM
 #include "core.h"
 #include "global.h"
 #include "lib/agb_flash/flash_internal.h"
+#include "platform/saturn/save_backend.h"
 #include "platform/shared/dma.h"
 #include "platform/shared/video/gpsp_renderer.h"
 #endif
@@ -38,32 +40,35 @@ extern void jo_get_inputs_vblank(void);
 
 #if !SATURN_PROBE_SLIM_PLATFORM
 static ALIGNED(256) uint16_t sGameImage[DISPLAY_WIDTH * DISPLAY_HEIGHT];
-static jo_img sFrameImage = {
-    .width = DISPLAY_WIDTH,
-    .height = DISPLAY_HEIGHT,
-    .data = sGameImage,
-};
 #endif
 static const char *sBootStage = "boot start";
 static u32 sPresentedFrames;
 static u16 sLastKeyInput;
 static u16 sLatchedKeyInput;
 static bool sInFatalLoop;
+static bool8 sShellBootTrapEnabled = FALSE;
+static bool8 sShellOverlayEnabled = TRUE;
+static u8 sShellTheme = 0;
+static bool8 sShellMenuSoundsEnabled = TRUE;
 #if SATURN_PROBE_SPRITE_PRESENT
 static s32 sFrameSpriteId = -1;
 #endif
 
 #if !SATURN_PROBE_SLIM_PLATFORM
 static inline void HandleVBlankIntrs(void);
+static inline u16 *PlatformSaturn_GetFrameBuffer(void);
+static void PlatformSaturn_FinalizeFrameColors(void);
 #endif
 
 #if SATURN_PROBE_VISUALS
 static void PlatformSaturn_FillDebugImage(u16 color)
 {
+    u16 *const frameBuffer = PlatformSaturn_GetFrameBuffer();
+
     for (s32 y = 0; y < DISPLAY_HEIGHT; ++y) {
         for (s32 x = 0; x < DISPLAY_WIDTH; ++x) {
             const bool border = (x < 4) || (x >= (DISPLAY_WIDTH - 4)) || (y < 4) || (y >= (DISPLAY_HEIGHT - 4));
-            sGameImage[(y * DISPLAY_WIDTH) + x] = border ? RGB_WHITE : color;
+            frameBuffer[(y * DISPLAY_WIDTH) + x] = border ? RGB_WHITE : color;
         }
     }
 }
@@ -105,18 +110,66 @@ static void PlatformSaturn_DrawBootOverlay(void)
     (void)sLastKeyInput;
     (void)sInFatalLoop;
 #else
+    const char *const saveBackendName = PlatformSaturn_GetSaveBackendName();
+    const bool8 hasSaveBackend = PlatformSaturn_HasSaveBackend();
+    const bool8 hasExistingSave = PlatformSaturn_SaveBackendHasExistingSave();
+
+    if (!sShellOverlayEnabled && !sInFatalLoop) {
+        return;
+    }
+
     jo_set_printf_color_index(JO_COLOR_INDEX_White);
     jo_printf(0, 0, "SA2 Saturn boot tracer");
     jo_printf(0, 1, "stage: %-28s", sBootStage);
     jo_printf(0, 2, "frames: %-10lu", (unsigned long)sPresentedFrames);
     jo_printf(0, 3, "keys:   0x%03X", sLastKeyInput);
     jo_printf(0, 4, "fatal:  %-10s", sInFatalLoop ? "yes" : "no");
+    jo_printf(0, 5, "save:   %-9s %-6s", saveBackendName, hasSaveBackend ? (hasExistingSave ? "present" : "blank") : "missing");
 #endif
+}
+
+static void PlatformSaturn_ApplyThemeColors(u16 *bg, u16 *panel, u16 *accent, u16 *highlight)
+{
+    switch (sShellTheme % 3) {
+        case 0:
+            *bg = RGB_BLUE;
+            *panel = RGB_WHITE;
+            *accent = 0;
+            *highlight = RGB_RED;
+            break;
+
+        case 1:
+            *bg = RGB_RED;
+            *panel = RGB_WHITE;
+            *accent = 0;
+            *highlight = RGB_BLUE;
+            break;
+
+        default:
+            *bg = RGB_GREEN;
+            *panel = RGB_WHITE;
+            *accent = 0;
+            *highlight = RGB_WHITE;
+            break;
+    }
+}
+
+static const char *PlatformSaturn_GetThemeName(void)
+{
+    static const char *const sThemeNames[] = {
+        "BLUE",
+        "RED",
+        "GREEN",
+    };
+
+    return sThemeNames[sShellTheme % ARRAY_COUNT(sThemeNames)];
 }
 
 #if SATURN_PROBE_VISUALS
 static void PlatformSaturn_FillRect(s32 left, s32 top, s32 right, s32 bottom, u16 color)
 {
+    u16 *const frameBuffer = PlatformSaturn_GetFrameBuffer();
+
     if (left < 0)
         left = 0;
     if (top < 0)
@@ -128,7 +181,7 @@ static void PlatformSaturn_FillRect(s32 left, s32 top, s32 right, s32 bottom, u1
 
     for (s32 y = top; y < bottom; ++y) {
         for (s32 x = left; x < right; ++x) {
-            sGameImage[(y * DISPLAY_WIDTH) + x] = color;
+            frameBuffer[(y * DISPLAY_WIDTH) + x] = color;
         }
     }
 }
@@ -241,103 +294,190 @@ static bool PlatformSaturn_DrawTitleShellFrame(void)
     const char *headline = "PRESS START";
     const char *subline = "START ENTERS MENU";
     bool drawMenu = false;
+    bool drawOptions = false;
+    bool drawSoundTest = false;
     s32 menuSelection = -1;
 
-    if ((sBootStage == NULL) || (strncmp(sBootStage, "Saturn title:", 13) != 0)) {
+    if (sBootStage == NULL) {
         return false;
     }
 
-    if (strstr(sBootStage, "MENU START") != NULL) {
-        drawMenu = true;
-        menuSelection = 0;
-        headline = "MAIN MENU";
-        subline = "UP DOWN MOVE";
-    } else if (strstr(sBootStage, "MENU OPTIONS") != NULL) {
-        bg = RGB_RED;
-        panel = RGB_WHITE;
-        accent = 0;
-        highlight = RGB_BLUE;
-        drawMenu = true;
-        menuSelection = 1;
-        headline = "MAIN MENU";
-        subline = "UP DOWN MOVE";
-    } else if (strstr(sBootStage, "MENU BACK") != NULL) {
-        bg = 0;
-        panel = RGB_WHITE;
-        accent = RGB_BLUE;
-        highlight = RGB_RED;
-        drawMenu = true;
-        menuSelection = 2;
-        headline = "MAIN MENU";
-        subline = "UP DOWN MOVE";
-    } else if (strstr(sBootStage, "START selected") != NULL) {
-        bg = RGB_WHITE;
-        panel = RGB_BLUE;
-        accent = RGB_RED;
-        highlight = RGB_WHITE;
-        headline = "START MODE";
-        subline = "PRESS START AGAIN";
-    } else if (strstr(sBootStage, "OPTIONS selected") != NULL) {
-        bg = RGB_RED;
-        panel = RGB_WHITE;
-        accent = 0;
-        highlight = RGB_BLUE;
-        headline = "OPTIONS";
-        subline = "PLACEHOLDER";
-    } else if (strstr(sBootStage, "BACK to title") != NULL) {
-        bg = 0;
-        panel = RGB_WHITE;
-        accent = RGB_BLUE;
-        highlight = RGB_RED;
-        headline = "BACK TO TITLE";
-        subline = "PRESS START";
-    } else if (strstr(sBootStage, "PROCEED placeholder") != NULL) {
-        bg = RGB_WHITE;
-        panel = RGB_RED;
-        accent = RGB_BLUE;
-        highlight = RGB_WHITE;
-        headline = "PROCEED";
-        subline = "PLACEHOLDER";
-    } else if (strstr(sBootStage, "EXIT") != NULL) {
-        bg = RGB_RED;
-        panel = 0;
-        accent = RGB_WHITE;
-        highlight = RGB_WHITE;
-        headline = "EXIT";
-        subline = "SHELL CLOSED";
-    } else if (strstr(sBootStage, "SHELL OK") != NULL) {
-        bg = 0;
-        panel = RGB_WHITE;
-        accent = RGB_BLUE;
-        highlight = RGB_RED;
-        headline = "SHELL OK";
-        subline = "PRESS START";
-    }
+    if (strncmp(sBootStage, "Saturn title:", 13) == 0) {
+        PlatformSaturn_ApplyThemeColors(&bg, &panel, &accent, &highlight);
 
-    PlatformSaturn_FillDebugImage(bg);
-    PlatformSaturn_FillRect(14, 18, 226, 142, panel);
-    PlatformSaturn_FillRect(20, 24, 220, 52, accent);
-    PlatformSaturn_DrawText3x5(28, 30, "SATURN MENU", panel, 3);
+        if (strstr(sBootStage, "MENU START GAME") != NULL) {
+            drawMenu = true;
+            menuSelection = 0;
+            headline = "MAIN MENU";
+            subline = "UP DOWN MOVE";
+        } else if (strstr(sBootStage, "MENU OPTIONS") != NULL) {
+            drawMenu = true;
+            menuSelection = 1;
+            headline = "MAIN MENU";
+            subline = "UP DOWN MOVE";
+        } else if (strstr(sBootStage, "MENU SOUND TEST") != NULL) {
+            drawMenu = true;
+            menuSelection = 2;
+            headline = "MAIN MENU";
+            subline = "UP DOWN MOVE";
+        } else if (strstr(sBootStage, "START GAME") != NULL) {
+            bg = RGB_WHITE;
+            panel = RGB_BLUE;
+            accent = RGB_RED;
+            highlight = RGB_WHITE;
+            headline = "START GAME";
+            subline = "LOADING REAL GAME";
+        } else if (strstr(sBootStage, "OPTIONS OPEN") != NULL) {
+            bg = RGB_RED;
+            panel = RGB_WHITE;
+            accent = 0;
+            highlight = RGB_BLUE;
+            headline = "OPTIONS";
+            subline = "OPENING SETTINGS";
+        } else if (strstr(sBootStage, "SOUND TEST OPEN") != NULL) {
+            bg = RGB_GREEN;
+            panel = RGB_WHITE;
+            accent = 0;
+            highlight = RGB_WHITE;
+            headline = "SOUND TEST";
+            subline = "AUDIO SETTINGS";
+        } else if (strstr(sBootStage, "EXIT") != NULL) {
+            bg = RGB_RED;
+            panel = 0;
+            accent = RGB_WHITE;
+            highlight = RGB_WHITE;
+            headline = "EXIT";
+            subline = "SHELL CLOSED";
+        } else if (strstr(sBootStage, "SHELL OK") != NULL) {
+            bg = 0;
+            panel = RGB_WHITE;
+            accent = RGB_BLUE;
+            highlight = RGB_RED;
+            headline = "SHELL OK";
+            subline = "PRESS START";
+        }
+    } else if (strncmp(sBootStage, "Saturn options:", 15) == 0) {
+        drawOptions = true;
+        PlatformSaturn_ApplyThemeColors(&bg, &panel, &accent, &highlight);
+
+        if (strstr(sBootStage, "BOOT TRAP") != NULL) {
+            menuSelection = 0;
+            headline = "SETTINGS";
+            subline = PlatformSaturn_GetShellBootTrapEnabled() ? "BOOT TRAP ENABLED" : "BOOT TRAP DISABLED";
+        } else if (strstr(sBootStage, "OVERLAY") != NULL) {
+            menuSelection = 1;
+            headline = "SETTINGS";
+            subline = PlatformSaturn_GetShellOverlayEnabled() ? "OVERLAY ENABLED" : "OVERLAY DISABLED";
+        } else if (strstr(sBootStage, "THEME") != NULL) {
+            menuSelection = 2;
+            headline = "SETTINGS";
+            subline = PlatformSaturn_GetThemeName();
+        } else if (strstr(sBootStage, "BACK") != NULL) {
+            menuSelection = 3;
+            headline = "SETTINGS";
+            subline = "RETURN TO MENU";
+        } else {
+            menuSelection = 0;
+            headline = "SETTINGS";
+            subline = "BOOT TRAP DISABLED";
+        }
+    } else if (strncmp(sBootStage, "Saturn sound:", 13) == 0) {
+        drawSoundTest = true;
+        PlatformSaturn_ApplyThemeColors(&bg, &panel, &accent, &highlight);
+
+        if (strstr(sBootStage, "MENU SOUNDS") != NULL) {
+            menuSelection = 0;
+            headline = "AUDIO";
+            subline = PlatformSaturn_GetShellMenuSoundsEnabled() ? "MENU CUES ENABLED" : "MENU CUES DISABLED";
+        } else if (strstr(sBootStage, "TEST TONE") != NULL) {
+            menuSelection = 1;
+            headline = "AUDIO";
+            subline = "PLAY A TEST TONE";
+        } else if (strstr(sBootStage, "BACK") != NULL) {
+            menuSelection = 2;
+            headline = "AUDIO";
+            subline = "RETURN TO MENU";
+        } else {
+            menuSelection = 0;
+            headline = "AUDIO";
+            subline = "MENU CUES DISABLED";
+        }
+    } else {
+        return false;
+    }
 
     if (drawMenu) {
         static const char *const sMenuLines[] = {
-            "> START",
+            "> START GAME",
             "> OPTIONS",
-            "> BACK",
+            "> SOUND TEST",
         };
 
+        PlatformSaturn_FillDebugImage(bg);
+        PlatformSaturn_FillRect(14, 18, 226, 142, panel);
+        PlatformSaturn_FillRect(20, 24, 220, 52, accent);
+        PlatformSaturn_DrawText3x5(28, 30, "SATURN MENU", panel, 3);
         PlatformSaturn_DrawText3x5(34, 62, headline, accent, 3);
         for (s32 i = 0; i < 3; ++i) {
             const u16 lineColor = (i == menuSelection) ? highlight : accent;
             PlatformSaturn_DrawText3x5(36, 84 + (i * 16), sMenuLines[i], lineColor, 3);
         }
         PlatformSaturn_DrawText3x5(28, 132, "A START OK  B BACK", accent, 2);
-    } else {
-        PlatformSaturn_DrawText3x5(28, 64, headline, accent, 4);
-        PlatformSaturn_DrawText3x5(28, 104, subline, accent, 2);
-        PlatformSaturn_DrawText3x5(28, 124, "UP DOWN  A B START", accent, 2);
+        return true;
     }
 
+    if (drawOptions) {
+        static const char *const sOptionLines[] = {
+            "> BOOT TRAP",
+            "> OVERLAY",
+            "> THEME",
+            "> BACK",
+        };
+
+        PlatformSaturn_FillDebugImage(bg);
+        PlatformSaturn_FillRect(14, 18, 226, 142, panel);
+        PlatformSaturn_FillRect(20, 24, 220, 52, accent);
+        PlatformSaturn_DrawText3x5(28, 30, "OPTIONS", panel, 3);
+        PlatformSaturn_DrawText3x5(30, 60, "SATURN SHELL SETTINGS", accent, 2);
+        for (s32 i = 0; i < 4; ++i) {
+            const u16 lineColor = (i == menuSelection) ? highlight : accent;
+            PlatformSaturn_DrawText3x5(36, 80 + (i * 14), sOptionLines[i], lineColor, 3);
+        }
+        PlatformSaturn_DrawText3x5(138, 80, PlatformSaturn_GetShellBootTrapEnabled() ? "ON" : "OFF", highlight, 3);
+        PlatformSaturn_DrawText3x5(138, 94, PlatformSaturn_GetShellOverlayEnabled() ? "ON" : "OFF", highlight, 3);
+        PlatformSaturn_DrawText3x5(138, 108, PlatformSaturn_GetThemeName(), highlight, 3);
+        PlatformSaturn_DrawText3x5(28, 132, "A TOGGLE  START SELECT  B BACK", accent, 2);
+        return true;
+    }
+
+    if (drawSoundTest) {
+        static const char *const sSoundLines[] = {
+            "> MENU SOUNDS",
+            "> TEST TONE",
+            "> BACK",
+        };
+
+        PlatformSaturn_FillDebugImage(bg);
+        PlatformSaturn_FillRect(14, 18, 226, 142, panel);
+        PlatformSaturn_FillRect(20, 24, 220, 52, accent);
+        PlatformSaturn_DrawText3x5(28, 30, "AUDIO", panel, 3);
+        PlatformSaturn_DrawText3x5(30, 60, "SATURN AUDIO SETTINGS", accent, 2);
+        for (s32 i = 0; i < 3; ++i) {
+            const u16 lineColor = (i == menuSelection) ? highlight : accent;
+            PlatformSaturn_DrawText3x5(36, 80 + (i * 18), sSoundLines[i], lineColor, 3);
+        }
+        PlatformSaturn_DrawText3x5(138, 80, PlatformSaturn_GetShellMenuSoundsEnabled() ? "ON" : "OFF", highlight, 3);
+        PlatformSaturn_DrawText3x5(28, 132, "A TOGGLE/PLAY  START SELECT  B BACK", accent, 2);
+        return true;
+    }
+
+    PlatformSaturn_FillDebugImage(bg);
+    PlatformSaturn_FillRect(14, 18, 226, 142, panel);
+    PlatformSaturn_FillRect(20, 24, 220, 52, accent);
+    PlatformSaturn_DrawText3x5(28, 30, "SATURN MENU", panel, 3);
+    PlatformSaturn_DrawText3x5(28, 64, headline, accent, 4);
+    PlatformSaturn_DrawText3x5(28, 104, subline, accent, 2);
+    PlatformSaturn_DrawText3x5(28, 124, "UP DOWN  A START  B BACK", accent, 2);
     return true;
 #endif
 }
@@ -376,15 +516,47 @@ static u16 ReadSaturnKeys(void)
 }
 
 #if !SATURN_PROBE_SLIM_PLATFORM
+static inline u16 *PlatformSaturn_GetFrameBuffer(void)
+{
+    return (u16 *)((uintptr_t)sGameImage | 0x20000000u);
+}
+
+static void PlatformSaturn_FinalizeFrameColors(void)
+{
+    u16 *const frameBuffer = PlatformSaturn_GetFrameBuffer();
+
+    for (s32 i = 0; i < (DISPLAY_WIDTH * DISPLAY_HEIGHT); ++i) {
+        // Saturn bitmap pixels must have the high bit set or they read as transparent.
+        frameBuffer[i] |= 0x8000;
+    }
+}
+
 static void PlatformSaturn_PresentFrame(void)
 {
+    jo_img frameImage = {
+        .width = DISPLAY_WIDTH,
+        .height = DISPLAY_HEIGHT,
+        .data = PlatformSaturn_GetFrameBuffer(),
+    };
+
+    PlatformSaturn_FinalizeFrameColors();
+
 #if SATURN_PROBE_SPRITE_PRESENT
     if (sFrameSpriteId < 0)
-        sFrameSpriteId = jo_sprite_add(&sFrameImage);
+        sFrameSpriteId = jo_sprite_add(&frameImage);
     else
-        sFrameSpriteId = jo_sprite_replace(&sFrameImage, sFrameSpriteId);
+        sFrameSpriteId = jo_sprite_replace(&frameImage, sFrameSpriteId);
 #else
-    jo_vdp2_set_nbg1_image(&sFrameImage, 0, 0);
+    {
+        u16 *dst = (u16 *)VDP2_VRAM_A0;
+        u16 *src = frameImage.data;
+
+        for (s32 y = 0; y < DISPLAY_HEIGHT; ++y) {
+            jo_dma_copy(src, dst, DISPLAY_WIDTH * sizeof(*src));
+            src += DISPLAY_WIDTH;
+            dst += JO_VDP2_WIDTH;
+        }
+    }
 #endif
     PlatformSaturn_DrawBootOverlay();
 }
@@ -399,7 +571,7 @@ void PlatformSaturn_RunProbeFrame(void)
     sLastKeyInput = PlatformSaturn_GetKeyInput();
     REG_KEYINPUT = KEYS_MASK ^ sLastKeyInput;
     if (!PlatformSaturn_DrawTitleShellFrame()) {
-        gpsp_draw_frame(sGameImage);
+        gpsp_draw_frame(PlatformSaturn_GetFrameBuffer());
     }
     PlatformSaturn_NoteFramePresented();
     PlatformSaturn_PresentFrame();
@@ -433,6 +605,8 @@ void PlatformSaturn_Init(void)
     REG_KEYINPUT = KEYS_MASK;
     sLastKeyInput = 0;
     sLatchedKeyInput = 0;
+    PlatformSaturn_InitSaveBackend();
+    PlatformSaturn_LoadSaveBackend();
     memset(sGameImage, 0, sizeof(sGameImage));
     PlatformSaturn_FillDebugImage(RGB_BLUE);
     jo_clear_background(JO_COLOR_Black);
@@ -464,6 +638,46 @@ u16 PlatformSaturn_GetKeyInput(void)
     return keys;
 }
 
+void PlatformSaturn_SetShellBootTrapEnabled(bool8 enabled)
+{
+    sShellBootTrapEnabled = enabled;
+}
+
+bool8 PlatformSaturn_GetShellBootTrapEnabled(void)
+{
+    return sShellBootTrapEnabled;
+}
+
+void PlatformSaturn_SetShellOverlayEnabled(bool8 enabled)
+{
+    sShellOverlayEnabled = enabled;
+}
+
+bool8 PlatformSaturn_GetShellOverlayEnabled(void)
+{
+    return sShellOverlayEnabled;
+}
+
+void PlatformSaturn_SetShellTheme(u8 theme)
+{
+    sShellTheme = theme % 3;
+}
+
+u8 PlatformSaturn_GetShellTheme(void)
+{
+    return sShellTheme;
+}
+
+void PlatformSaturn_SetShellMenuSoundsEnabled(bool8 enabled)
+{
+    sShellMenuSoundsEnabled = enabled;
+}
+
+bool8 PlatformSaturn_GetShellMenuSoundsEnabled(void)
+{
+    return sShellMenuSoundsEnabled;
+}
+
 void PlatformSaturn_SetBootStage(const char *stage)
 {
     sBootStage = (stage != NULL) ? stage : "(null)";
@@ -473,13 +687,15 @@ void PlatformSaturn_SetBootStage(const char *stage)
 
         if (strncmp(sBootStage, "Saturn title:", 13) == 0) {
             color = JO_COLOR_Blue;
-            if (strstr(sBootStage, "START selected") != NULL || strstr(sBootStage, "PROCEED placeholder") != NULL) {
+            if (strstr(sBootStage, "START GAME") != NULL) {
                 color = JO_COLOR_White;
-            } else if (strstr(sBootStage, "MENU OPTIONS") != NULL || strstr(sBootStage, "OPTIONS selected") != NULL) {
+            } else if (strstr(sBootStage, "MENU OPTIONS") != NULL || strstr(sBootStage, "OPTIONS") != NULL) {
                 color = JO_COLOR_Purple;
-            } else if (strstr(sBootStage, "MENU BACK") != NULL || strstr(sBootStage, "BACK to title") != NULL) {
-                color = JO_COLOR_Red;
+            } else if (strstr(sBootStage, "MENU SOUND TEST") != NULL || strstr(sBootStage, "SOUND TEST") != NULL) {
+                color = JO_COLOR_Green;
             }
+        } else if (strncmp(sBootStage, "Saturn sound:", 13) == 0) {
+            color = JO_COLOR_Green;
         } else if (strstr(sBootStage, "stage2 returned") != NULL) {
             color = JO_COLOR_Green;
         }
@@ -580,8 +796,7 @@ void DoSoftReset(void)
 
 void Platform_StoreSaveFile(void)
 {
-    // TODO(saturn): Implement Platform_StoreSaveFile using a persistent Saturn save backend.
-    // When this is wired up, make sure write/open failures are surfaced and handled appropriately.
+    PlatformSaturn_StoreSaveBackend();
 }
 
 void Platform_QueueAudio(const s16 *data, u32 numBytes)
