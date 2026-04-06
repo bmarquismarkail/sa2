@@ -34,8 +34,19 @@ static const u16 sStageGoalScoreBonusAnimData[][3] = {
 struct Task *CreateMultiplayerSpriteTask(s16 x, s16 y, u8 param2, s8 param3, TaskMain main, TaskDestructor dtor)
 {
     struct Task *t = TaskCreate(main, sizeof(MultiplayerSpriteTask), 0x4001, 0, dtor);
-    MultiplayerSpriteTask *taskData = TASK_DATA(t);
-    Sprite *s = &taskData->s;
+    MultiplayerSpriteTask *taskData;
+    Sprite *s;
+
+    if ((t == NULL) || (t == &gEmptyTask) || (TASK_DATA(t) == NULL)) {
+        if ((t != NULL) && (t != &gEmptyTask)) {
+            TaskDestroy(t);
+        }
+
+        return NULL;
+    }
+
+    taskData = TASK_DATA(t);
+    s = &taskData->s;
 
     taskData->x = x;
     taskData->y = y;
@@ -161,9 +172,18 @@ struct Task *CreateStageGoalBonusPointsAnim(s32 x, s32 y, u16 score)
     }
 
     t = CreateMultiplayerSpriteTask(x, y, 32, 0, Task_UpdateMpSpriteTaskSprite, TaskDestructor_MultiplayerSpriteTask);
+    if (t == NULL) {
+        return NULL;
+    }
+
     taskData = TASK_DATA(t);
     s = &taskData->s;
     s->graphics.dest = VramMalloc(sStageGoalScoreBonusAnimData[bonusIndex][0]);
+    if (s->graphics.dest == NULL) {
+        TaskDestroy(t);
+        return NULL;
+    }
+
     s->graphics.anim = sStageGoalScoreBonusAnimData[bonusIndex][1];
     s->variant = sStageGoalScoreBonusAnimData[bonusIndex][2];
     s->oamFlags = SPRITE_OAM_ORDER(8);
@@ -198,9 +218,18 @@ void CreateGrindEffect2(void)
     y2 = I(p->qWorldY) + y;
 
     t = CreateMultiplayerSpriteTask(x2, y2, 192, 0, Task_UpdateMpSpriteTaskSprite, TaskDestructor_MultiplayerSpriteTask);
+    if (t == NULL) {
+        return;
+    }
+
     taskData = TASK_DATA(t);
     s = &taskData->s;
     s->graphics.dest = VramMalloc(20);
+    if (s->graphics.dest == NULL) {
+        TaskDestroy(t);
+        return;
+    }
+
     s->graphics.anim = SA2_ANIM_GRIND_EFFECT;
     s->variant = 0;
     s->oamFlags = SPRITE_OAM_ORDER(8);
